@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from scipy.stats import qmc
 import pickle
@@ -18,10 +19,7 @@ class Generator():
             this.samples = init
 
     def sample(this, n):
-        if not((n != 0) and (n & (n-1) == 0)):
-            raise Exception("Balance properties lost if the number of samples is not a power of 2")
-        
-        samples = this.sampler.random_base2(n)
+        samples = this.sampler.random_base2(int(math.log(n, 2)))
         samples = qmc.scale(samples, this.bounds[:, 0], this.bounds[:, 1])
         if this.nSamples == 0:
             this.samples = samples

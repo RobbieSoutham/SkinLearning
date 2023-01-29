@@ -1,0 +1,2 @@
+
+start cmd.exe /W "C:\Users\rjsou\Documents\MastersDiss\venv\Scripts\activate.bat" &  jupyter notebook & pause"
