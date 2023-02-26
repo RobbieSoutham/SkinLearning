@@ -25,6 +25,7 @@ def parseArguments():
 
 def getParameters(nSamples):
     DIMS = 6
+    '''
     BOUNDS = [
         [10e3, 50e3], # Skin YM
         [1e3, 25e3], # Adipose YM
@@ -33,10 +34,13 @@ def getParameters(nSamples):
         [10e-12, 10e-10], # Skin perm
         [10e-12, 10e-10, ] # Adipose perm
         ]
-
+    '''
+    with open("../sampleRanges.pkl", "rb") as f:
+        BOUNDS = pickle.load(f)
+     
     gen = Generator(DIMS, BOUNDS)
     gen.sample(nSamples)
-    gen.saveSamples("samples.pkl")
+    gen.saveSamples("../newSamples.pkl")
 
     return gen.samples  
 
@@ -52,13 +56,14 @@ if __name__ == "__main__":
     
     if GENERATE:
         samples = getParameters(NSAMPLES)
+        raise Exception()
     else:
         with open("samples.pkl", "rb") as f:
             samples = pickle.load(f)
 
     if not (os.path.exists(PATH)):
         os.makedirs(PATH)
-
+    
     params = "[{} {}], [{} {}], [{} {}]".format(*samples[ID])
     params += f", {TTR}, {TTHA}, {TTHS}, '{ID}'"
     proc = Popen(f"matlab -nodisplay -r \"run_batch({params})\"", shell=True)
