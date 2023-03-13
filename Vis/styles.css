@@ -1,0 +1,12 @@
+#pcp {
+  float:right;
+  vertical-align: middle;
+  }
+
+#visContainer {
+  display: inline-block;
+}
+
+#legend {
+  float:right;
+}
