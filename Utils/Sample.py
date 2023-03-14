@@ -44,38 +44,47 @@ def getParameters(nSamples):
 if __name__ == "__main__":
     NSAMPLES, GENERATE, ID = parseArguments()
 
+    
     TTHA = 5e-3
     TTR = 5e-3
     TTHS = 1e-3
-    SAMPLE_DIR = "SamplingResults2/"
+    PATH = "SamplingResults2/"
+
     
     if GENERATE:
         samples = getParameters(NSAMPLES)
     else:
-        with open("samples.pkl", "rb") as f:
+        with open("newSamples.pkl", "rb") as f:
             samples = pickle.load(f)
-        
-        with open("missingSamples.pkl", "rb") as f:
-            idx = pickle.load(f)[ID]
 
-    PATH = SAMPLE_DIR + idx
-
-    if os.path.exists(PATH):
-        shutil.rmtree(PATH)
-        os.mkdir(PATH)
-
-    print(f"Index of missing sample: {ID}, missing sample: {idx}")
-    
-    params = "[{} {}], [{} {}], [{} {}]".format(*samples[int(idx)])
-    params += f", {TTR}, {TTHA}, {TTHS}, '{idx}'"
+    #missing = True
+    if not (os.path.exists(PATH)):
+        os.makedirs(PATH)
+    """
+    if "Disp2.csv" in os.listdir(f"{PATH}{ID}"):
+        missing = False
+        print("Already complete, deleting files")
+        for file in os.listdir(f"{PATH}{ID}"):
+            if file != "Disp1.csv" and file != "Disp2.csv":
+                os.remove(f"{PATH}{ID}/{file}")
+    else:
+        shutil.rmtree(f"{PATH}{ID}")
+        os.makedirs(f"{PATH}{ID}")
+        print("Not completed, removing dir")
+    """
+    #if missing:
+    #os.mkdir(PATH+str(ID))
+    params = "[{} {}], [{} {}], [{} {}]".format(*samples[ID])
+    params += f", {TTR}, {TTHA}, {TTHS}, '{ID}'"
     run(f"matlab -nodisplay -r \"run_batch({params})\"", shell=True)
-    
-    run(f"febio4 -i {PATH}/Cutometer_out1.feb", shell=True)
-    run(f"matlab -nodisplay -r \"read_nodal(1, '{PATH}')\"", shell=True)
-    run(f"febio4 -i {PATH}/Cutometer_out2.feb -silent", shell=True)
-    run(f"matlab -nodisplay -r \"read_nodal(2, '{PATH}')\"", shell=True)
-    print(f"Missing sample {idx} is complete")
 
-    for file in os.listdir(f"{PATH}"):
-        if file not in ["Disp1.csv", "Disp2.csv"]:
-            os.remove(f"{PATH}/{file}")
+    run(f"febio4 -i {PATH}{ID}/Cutometer_out1.feb", shell=True)
+    run(f"matlab -nodisplay -r \"read_nodal(1, '{PATH}{ID}')\"", shell=True)
+    run(f"febio4 -i {PATH}{ID}/Cutometer_out2.feb -silent", shell=True)
+    run(f"matlab -nodisplay -r \"read_nodal(2, '{PATH}{ID}')\"", shell=True)
+    
+    print("Removing uneeded files")
+    for file in os.listdir(f"{PATH}{ID}"):
+        if file != "Disp1.csv" and file != "Disp2.csv":
+                os.remove(f"{PATH}{ID}/{file}")
+

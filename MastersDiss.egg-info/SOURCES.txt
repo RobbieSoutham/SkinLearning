@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-setup.cfg
-setup.py
-MastersDiss.egg-info/PKG-INFO
-MastersDiss.egg-info/SOURCES.txt
-MastersDiss.egg-info/dependency_links.txt
-MastersDiss.egg-info/top_level.txt

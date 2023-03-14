@@ -2,7 +2,7 @@
 
 from setuptools import setup, find_packages
 
-setup(name='src',
+setup(name='SkinLearning',
       version='1.0',
       description='Masters Dissertation',
       author='Robbie Southam',

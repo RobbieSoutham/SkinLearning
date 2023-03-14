@@ -1,9 +1,9 @@
 #!/bin/bash --login
 #SBATCH -n 70                     #Number of processors in our pool
-#SBATCH -o output.log.%J              #Job output
-#SBATCH -t 72:00:00               #Max wall time for entire job
-#SBATCH -e output.err.%J
-#SBATCH -J sampling
+#SBATCH -o fixing.log              #Job output
+#SBATCH -t 48:00:00               #Max wall time for entire job
+#SBATCH -e fixing.err
+#SBATCH -J MissingSamples
 
 #change the partition to compute if running in Swansea
 #SBATCH -p compute                    #Use the High Throughput partition which is intended for serial jobs
@@ -26,4 +26,14 @@ parallel="parallel -N 1 --delay .2 -j $SLURM_NTASKS --joblog parallel_joblog --r
 # --resume          parallel can use a joblog and this to continue an interrupted run (job resubmitted)
 
 # Run the tasks:
-$parallel "$srun python3 Sample.py -i {1}" ::: {39999..65535}
+$parallel "$srun python3 getMissing.py -i {1}" ::: {0..692}
+# in this case, we are running a script named runtask, and passing it a single argument
+# {1} is the first argument
+# parallel uses ::: to separate options. Here {1..64} is a shell expansion defining the values for
+#    the first argument, but could be any shell command
+#
+# so parallel will run the runtask script for the numbers 1 through 64, with a max of 40 running 
+#    at any one time
+#
+# as an example, the first job will be run like this:
+#    srun -N1 -n1 --exclusive ./runtask arg1:1

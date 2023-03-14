@@ -36,9 +36,6 @@ d3.csv("data/parameters.csv").get( function(data) {
 
         buildControls(data);
         buildPCP(data);
-        //buildDists(data);
-        //buildScatter(data);
-
         
         // Hacky responsiveness
         // TODO: dont reload whole page...
@@ -47,7 +44,7 @@ d3.csv("data/parameters.csv").get( function(data) {
         } );
 
     
-    });
+});
 
 // Build the scatter plot for components of FA
 function buildScatter(data){
