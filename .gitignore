@@ -6,3 +6,6 @@ SkinLearning/NN/__pycache__
 SkinLearning.egg-info/
 Data/.ipynb_checkpoints
 setup.cfg
+venv/
+Notebooks/.ipynb_checkpoints
+SkinLearning/Utils/__pycache__/
