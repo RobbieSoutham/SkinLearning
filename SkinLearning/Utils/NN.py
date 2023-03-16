@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import torch
 from torch import nn, optim
 from tqdm import tqdm
@@ -9,14 +10,12 @@ def train(train_loader, net, LR=0.1, epochs=2000, val_loader=None):
     net.to(DEVICE)
     optimizer = optim.Adam(net.parameters(), lr=LR)
     criterion = nn.L1Loss()
-    all_MSE = nn.L1Loss()
-    val_losses = []
-    print(f"Using: {DEVICE}")
-                            
-    parameter_loss = []
+    val_losses = []        
     losses = []
-    processed = 0
     last_loss = 0
+
+    print(f"Using: {DEVICE}")
+    
     for epoch in range(epochs):
         loss = 0
         net.train()
@@ -35,13 +34,6 @@ def train(train_loader, net, LR=0.1, epochs=2000, val_loader=None):
                 loss += cost.item()
                 cost.backward()
                 optimizer.step()
-                
-                for i in range(len(predicted)):
-                    current_MSE = []
-                    for j in range(6):
-                        current_MSE.append(all_MSE(out[i][j], predicted[i][j]).item())
-                    parameter_loss.append(current_MSE)
-                    processed += 1
         
         if val_loader:
             val_loss = 0
@@ -58,11 +50,9 @@ def train(train_loader, net, LR=0.1, epochs=2000, val_loader=None):
         loss /= len(it)
         losses.append(loss)
         last_loss = loss
-    
-    print("Parameters: Skin YM, Adipose YM, Skin PR, Adipose PR, Skin Perm, Adipose Perm")
-    print(f"Sampled Ranges: 10e3 - 50e3, 1e3 - 25e3, 0.48 - 0.499, 0.48 - 0.499, 10e - 12-10e10, 10e-12 - 10e10") 
-    print(f"Average parameter loss: {np.mean(np.reshape(np.array(parameter_loss), (-1, 6)), axis=0)}")        
-    print(f"Average overall loss: {np.sum(losses)/processed}")
+         
+    print(f"Average train loss: {np.sum(losses)/epochs}")
+    print(f"Average validation loss: {np.sum(val_losses)/epochs}")
     
     return losses, val_losses
 
@@ -74,10 +64,10 @@ def test(test_loader, net, scaler):
     net.to(DEVICE)
     net.eval()
     criterion = nn.L1Loss()
-    crit = nn.L1Loss()
-    differences = []
+
     losses = []
     p_losses = []
+    mae = []
 
     with torch.no_grad():
         with tqdm(test_loader, unit=" batch") as it:
@@ -85,40 +75,73 @@ def test(test_loader, net, scaler):
                 inp, out = data['input'].to(DEVICE), data['output'].to(DEVICE)
 
                 predicted = net(inp)
-
-                # Get overall MAE
-                cost = criterion(predicted, out)
-                loss = cost.item()
                 
-                # Convert to 100-MAPE
-                losses.append(100-(100*loss))
-
-                p_loss = []
-                # Loop over each parameter
-                for i in range(6):
-                    p = predicted[:, i]
-                    o = out[:, i]
-
-                    # Get MAE
-                    cost = criterion(p, o)
-                    loss = cost.item()
-
-                    # Convert to 100-MAPE
-                    p_loss.append(100-(100*loss))
+                # Denormalise
+                p = scaler.inverse_transform(predicted.cpu().numpy())
+                o = scaler.inverse_transform(out.cpu().numpy())
                     
-                    p = p.cpu().numpy()
-                    o = o.cpu().numpy()
+                # Get column wise and overall MAPE
+                # Since each column is normalised should also be able to use MAE*100
+                p_loss = np.mean(100*(np.abs(o-p)/o), axis=0)
+                loss = np.mean(100*(np.abs(o-p)/o))
 
-
-                    for i in range(len(predicted)):
-
-                        p = predicted[i].cpu().numpy().reshape(1, -1)
-                        o = out[i].cpu().numpy().reshape(1, -1)
-
-                        p = scaler.inverse_transform(p)[0]
-                        o = scaler.inverse_transform(o)[0]
-
-                        differences.append(100-(np.abs(p-o)/o)*100)
-            p_losses.append(p_loss)
+                mae.append(criterion(predicted, out).item())
+        
             
-    return np.mean(p_losses, axis=0), np.mean(losses, axis=0), np.mean(differences, axis=0) #np.mean(np.array(differences), axis=0)
+                p_losses.append(p_loss)
+                losses.append(loss)
+
+            
+    average_mape = 100 - np.mean(losses)
+    average_p_loss = 100 - np.mean(p_losses, axis=0)
+    mae_mean = np.mean(mae)
+    
+    return average_mape, average_p_loss, mae_mean
+
+"""
+    Run evaluation and build a dataframe of parameter accuracies
+    Accuracies are calculated as 100-MAPE
+    
+    Parameters:
+        models (list): The networks to test
+        names (list): Names of the models to label the dataframe
+        test_loader (DataLoader): The dataloader for the testing set
+"""
+def getParameterLoss(models, names, test_loader, print=False):
+    params = []
+    overall = []
+    
+    # Run evaluation on all models
+    for model in models:
+        ps, avg, _ = test(test_loader, model)
+        overall.append(avg)
+        params.append(ps)
+    
+    all_vals = np.array(params)
+    df = pd.DataFrame({
+        "Architecture": names,
+        "YM (Skin)": all_vals[:, 0],
+        "YM (Adipose)": all_vals[:, 1],
+        "PR (Skin)": all_vals[:, 2],
+        "PR (Adipose)": all_vals[:, 3],
+        "Perm (Skin)": all_vals[:, 4],
+        "Perm (Adipose)": all_vals[:, 5],
+        "Overall": overall
+    })
+    
+    df = df.set_index("Architecture")
+
+    if print:
+        df = df.style.set_caption(
+            'Average percent correctness 100-MAPE').set_table_styles([{
+            'selector': 'caption',
+            'props': [
+                ('color', 'black'),
+                ('font-size', '16px'),
+                ('text-align', 'center')
+            ]
+        }])
+
+        display(df)
+    else:
+        return df

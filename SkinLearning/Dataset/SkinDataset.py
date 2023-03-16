@@ -23,6 +23,7 @@ class SkinDataset(Dataset):
         self.min = np.min(samples[runs])
         self.max = np.max(samples[runs])
         
+        
         for run in tqdm(runs):
             inp = []
             fail = False
