@@ -9,3 +9,5 @@ setup.cfg
 venv/
 Notebooks/.ipynb_checkpoints
 SkinLearning/Utils/__pycache__/
+Results/
+Data/
