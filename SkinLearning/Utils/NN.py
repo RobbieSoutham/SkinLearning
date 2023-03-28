@@ -1,3 +1,5 @@
+import os
+import random
 import numpy as np
 import pandas as pd
 import torch
@@ -6,13 +8,32 @@ from tqdm import tqdm
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def train(train_loader, net, LR=0.1, epochs=2000, val_loader=None):
+def setSeed(seed=123):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+def train(
+    train_loader,
+    net,
+    LR=0.1,
+    epochs=2000,
+    val_loader=None,
+    early_stopping=False,
+    patience=50,
+    optimizer=optim.Adam
+):
     net.to(DEVICE)
-    optimizer = optim.Adam(net.parameters(), lr=LR)
+    optimizer = optimizer(net.parameters(), lr=LR)
     criterion = nn.L1Loss()
     val_losses = []        
     losses = []
     last_loss = 0
+    best_val_loss = 1e10
+    counter = 0
 
     print(f"Using: {DEVICE}")
     
@@ -22,7 +43,7 @@ def train(train_loader, net, LR=0.1, epochs=2000, val_loader=None):
         with tqdm(train_loader, unit="batch") as it:
             if epoch > 0:
                 it.set_postfix(lastLoss=last_loss, valLoss=0 if len(val_losses) \
-                     == 0 else val_losses[-1])
+                     == 0 else val_losses[-1], counter=counter)
             for idx, data in enumerate(it):
                 it.set_description(f"Epoch {epoch+1}/{epochs}")
                 inp, out = data['input'].to(DEVICE), data['output'].to(DEVICE)
@@ -35,6 +56,10 @@ def train(train_loader, net, LR=0.1, epochs=2000, val_loader=None):
                 cost.backward()
                 optimizer.step()
         
+        loss /= len(it)
+        losses.append(loss)
+        last_loss = loss
+        
         if val_loader:
             val_loss = 0
             net.eval()
@@ -46,10 +71,16 @@ def train(train_loader, net, LR=0.1, epochs=2000, val_loader=None):
                 val_loss += cost.item()
             val_loss /= len(val_loader)  
             val_losses.append(val_loss)
-        
-        loss /= len(it)
-        losses.append(loss)
-        last_loss = loss
+
+            if early_stopping:
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    counter = 0
+                else:
+                    counter += 1
+                if counter >= patience:
+                    print(f"Early stopping after {epoch + 1} epochs")
+                    break
          
     print(f"Average train loss: {np.sum(losses)/epochs}")
     print(f"Average validation loss: {np.sum(val_losses)/epochs}")
@@ -107,13 +138,13 @@ def test(test_loader, net, scaler):
         names (list): Names of the models to label the dataframe
         test_loader (DataLoader): The dataloader for the testing set
 """
-def getParameterLoss(models, names, test_loader, print=False):
+def getParameterLoss(models, names, test_loader, scaler, print=False):
     params = []
     overall = []
     
     # Run evaluation on all models
     for model in models:
-        ps, avg, _ = test(test_loader, model)
+        ps, avg, _, _ = test(test_loader, model, scaler)
         overall.append(avg)
         params.append(ps)
     
