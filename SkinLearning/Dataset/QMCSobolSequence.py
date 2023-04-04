@@ -28,11 +28,11 @@ class Generator():
         this.nSamples += n
         return samples
     
-    def saveSamples(this, fname):
+    def save_samples(this, fname):
         with open(f"{fname}", "wb") as f:
             pickle.dump(this.samples, f)
             
-    def loadSamples(this, fname):
+    def load_samples(this, fname):
         with open(f"{fname}", "rb") as f:
             this.samples = pickle.load(f)
         

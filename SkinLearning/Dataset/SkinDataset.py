@@ -7,31 +7,37 @@ from torch import FloatTensor, tensor
 from torch.cuda import FloatTensor as GPUFloatTensor
 from tqdm import tqdm
 from torch.utils.data import Dataset
-
-from SkinLearning.Utils.NN import DEVICE
+from ..NN.Helpers import DEVICE
 
 # Folder name will correspond to index of sample
 class SkinDataset(Dataset):
-    def __init__(self, scaler, signalFolder="D:/SamplingResults2", sampleFile="../Data/newSamples.pkl", runs=range(65535), steps=128):
+    def __init__(
+        self,
+        scaler,
+        signal_folder="D:/SamplingResults2",
+        sample_file="../Data/newSamples.pkl",
+        runs=range(65535),
+        steps=128
+        ):
         # Load both disp1 and disp2 from each folder
         # Folders ordered according to index of sample
         self.input = []
         self.output = []
         
-        with open(f"{sampleFile}", "rb") as f:
+        with open(f"{sample_file}", "rb") as f:
              samples = pickle.load(f)
         
         for run in tqdm(runs):
             inp = []
             fail = False
             
-            files = os.listdir(f"{signalFolder}/{run}/")
+            files = os.listdir(f"{signal_folder}/{run}/")
             
             if files != ['Disp1.csv', 'Disp2.csv']:
                 continue
             
             for file in files:
-                a = pd.read_csv(f"{signalFolder}/{run}/{file}")
+                a = pd.read_csv(f"{signal_folder}/{run}/{file}")
                 a.rename(columns = {'0':'x', '0.1': 'y'}, inplace = True)
                 
                 # Skip if unconverged
@@ -53,7 +59,6 @@ class SkinDataset(Dataset):
                 self.output.append(samples[int(run)])
         
         # Normalise output variables
-        scaler.fit(self.output)
         self.output = scaler.fit_transform(self.output)
         
         self.output = tensor(self.output).type(

@@ -10,7 +10,7 @@ import numpy as np
     Plots a bar chart for 100-MAPE of all parameters and overall
     for the given models in the dataframe
 """
-def plotParameterBars(df, file_name=None):
+def plot_parameter_bars(df, fname=None):
     fig, ax = plt.subplots(1, 1, figsize=(20, 10), constrained_layout=True)
     df.plot.bar(ax=ax)
     
@@ -22,14 +22,14 @@ def plotParameterBars(df, file_name=None):
     ax.set_title("Average percent correctness 100-MAPE", size=40, y=1.08)
     ax.set_ylim(60, 100)
 
-    if file_name:
-        fig.savefig(f"../Results/{file_name}", bbox_inches='tight')
+    if fname:
+        fig.savefig(f"../Results/{fname}", bbox_inches='tight')
 
 
 """
     Plots train/validation loss curves for the given models
 """
-def printCurves(model_names, train_losses, val_losses, epochs=550, fname=None):
+def print_curves(model_names, train_losses, val_losses, epochs=550, fname=None):
     assert len(model_names) == len(train_losses) == len(val_losses)
     
     num_plots = len(model_names)

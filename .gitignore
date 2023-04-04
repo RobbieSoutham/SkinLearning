@@ -2,7 +2,9 @@ venv/
 SkinLearning/Sampling/__pycache__/
 SkinLearning/Dataset/__pycache__/
 SkinLearning/Plotting/__pycache__
+SkinLearning/Experiments/__pycache__
 SkinLearning/NN/__pycache__
+SkinLearning/utils/__pycache__
 SkinLearning.egg-info/
 Data/.ipynb_checkpoints
 setup.cfg
