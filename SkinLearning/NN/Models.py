@@ -90,36 +90,64 @@ class MultiTemporal(nn.Module):
         else:
             raise ValueError("Invalid method. Choose from 'concatenate', 'multi_channel', or 'independent'.")
         
-        # Check size of output to determine FC input
-        input_tensor = torch.zeros(
-            32,
-            512,
-            input_size if fusion_method == "concatenate" else input_size//2
-        )
-        output, _ = self.net(input_tensor)
-        
+            
         fc_in = hidden_size
-        if out == 'output':
-            fc_in = output.shape[1] * output.shape[2]
-        elif out == 'f-output':
-            fc_in = output.shape[2]
-        elif fc_in == 'hidden' or out == 'cell':
-            out = hidden_size * output.shape[2]
-        elif out == 'f-hiden' or out == 'f-cell':
-            fc_in = output.shape[2]
-        elif out == 'h+o' or out == 'h+c' :
-            fc_in = output.shape[1]
-        
+
+        if fusion_method == "independent":
+            fc_in *= 2
+            
+        if out == "h+o":
+            fc_in *= 2
+
+            
         if single_fc:
             self.fc = nn.Linear(fc_in*layers, 6)
         else:
             self.fc = nn.Sequential(
-                nn.Linear(fc_in*layers, 128),
+                nn.Linear(256 if temporal_type == 'LSTM' else fc_in, 128),
                 nn.ReLU(),
                 nn.Linear(128 , 64),
                 nn.ReLU(),
                 nn.Linear(64, 6),   
             )
+            
+            if temporal_type == "LSTM" and conv == False:
+                if fc_in > 256:
+                    if fc_in == 4096:
+                        init_layers = nn.Sequential(
+                            nn.Linear(4096, 2048),
+                            nn.ReLU(),
+                            nn.Linear(2048, 1024),
+                            nn.ReLU(),
+                            nn.Linear(1024 , 512),
+                            nn.ReLU(),
+                            nn.Linear(512, 256), 
+                        )
+                    elif fc_in == 512:
+                        init_layers = nn.Sequential(
+                            nn.Linear(512, 256),
+                            nn.ReLU()
+                        )
+                    elif fc_in == 2048:
+                        init_layers = nn.Sequential(
+                            nn.Linear(2048, 1024),
+                            nn.ReLU(),
+                            nn.Linear(1024, 512),
+                            nn.ReLU(),
+                            nn.Linear(512, 256),
+                            nn.ReLU()
+                        )
+                        
+                    elif fc_in == 1024:
+                        init_layers = nn.Sequential(
+                            nn.Linear(1024, 512),
+                            nn.ReLU(),
+                            nn.Linear(512, 256),
+                            nn.ReLU()
+                        )
+
+                    self.fc = nn.Sequential(init_layers, self.fc)
+            print("\n")   
 
     def forward(self, x):
         batch_size = x.shape[0]
@@ -129,12 +157,11 @@ class MultiTemporal(nn.Module):
         else:
             x = x.reshape(batch_size, -1, self.input_size)
 
-        def getOutputs(x):
+        def getOutputs(inp):
             if self.temporal_type == "LSTM":
-                o, (h, _) = self.net(x)
+                o, (h, _) = self.net(inp)
             else:
-                o, h = self.net(x)
-            
+                o, h = self.net(inp)
             return o, h
 
         
@@ -144,17 +171,12 @@ class MultiTemporal(nn.Module):
             signal_size = self.input_size//2
             signal1 = x[..., :signal_size].reshape(batch_size, -1, signal_size)
             signal2 = x[..., signal_size:].reshape(batch_size, -1, signal_size)
-
-            o1, h1, = self.net(signal1)
-            o2, h2 = self.net(signal2)
+            
+            o1, h1, = getOutputs(signal1)
+            o2, h2 = getOutputs(signal2)
         else:
             o, h = getOutputs(x)
-            
         
-        if self.temporal_type == "LSTM":
-            o, (h, _) = self.net(x)
-        else:
-            o, h = self.net(x)
         
         if self.out == "f_hidden":
             if self.fusion_method == "independent":
@@ -163,9 +185,13 @@ class MultiTemporal(nn.Module):
                     ).reshape(batch_size, -1)
             else:
                 x = h[-1].reshape(batch_size, -1)
-            x = h[-1].reshape(batch_size, -1)
         elif self.out == "hidden":
-            x = h.reshape(batch_size, -1)
+            if self.fusion_method == "independent":
+                x = torch.concat(
+                    [h1, h2], dim=1
+                    ).reshape(batch_size, -1)
+            else:   
+                x = h.reshape(batch_size, -1)
         elif self.out == "f_output":
             if self.fusion_method == "independent":
                 x = torch.concat(
@@ -174,9 +200,26 @@ class MultiTemporal(nn.Module):
             else:
                 x = o[:, -1, :].reshape(batch_size, -1)
         elif self.out == "output":
-            x = o.reshape(batch_size, -1)
+            if self.fusion_method == "independent":
+                x = torch.concat(
+                    [o1, o2], dim=1
+                    ).reshape(batch_size, -1)
+            else:
+                x = o.reshape(batch_size, -1)
         elif self.out == "h+o":
-            x = torch.concat([h[-1], o[:, -1, :]], dim=1).view(o.size(0), -1)
+                if self.fusion_method == "independent":
+                    x1 = torch.concat(
+                        [h1[-1], o1[:, -1, :]], dim=1
+                        )
+                    
+                    x2 = torch.concat(
+                        [h2[-1], o2[:, -1, :]], dim=1
+                        )
+                    
+                    x = torch.concat([x1, x2], dim=1
+                        ).view(o2.size(0), -1)
+                else:
+                    x = torch.concat([h[-1], o[:, -1, :]], dim=1).view(o.size(0), -1)
             
         x = self.fc(x)
         return x

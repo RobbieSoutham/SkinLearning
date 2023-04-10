@@ -1,11 +1,12 @@
 from argparse import ArgumentParser
 import pandas as pd
 from torch import nn
-from ..NN.Models import DualDown, DualDownUp, DualUp, DualUpDown
-from ..NN.Helpers import KFCV
-from ..Utils.Plotting import plotParameterBars, saveDf
-from ..Utils.Dataset import getDataset
-
+from ..NN.Models import DualDown, DualDownUp, DualUp, DualUpDown, MultiTemporal
+from ..NN.Helpers import kfcv, DEVICE, set_seed
+from ..Utils.Plotting import plot_parameter_bars, save_df
+from ..Utils.Dataset import get_dataset
+import seaborn as sns
+import numpy as np
 parser = ArgumentParser()
 
 parser.add_argument(
@@ -29,36 +30,35 @@ parser.add_argument(
 args = parser.parse_args()
 
 def cnn_experiment():
-    # Test DualDownUp, DualUp, DualUp, DualDown, DualUpDown
     models = [
-        #nn.DataParallel(DualDownUp()),
-        nn.DataParallel(DualUp()),
-        #nn.DataParallel(DualDown()),
-        #nn.DataParallel(DualUpDown())
-
+        MultiTemporal(
+            out="f_output",
+            temporal_type="RNN",
+            )
     ]
     
     names = [
-        "Down Sample/Up Sample",
-        "Up Sample",
-        "Down Sample",
-        "Up Sample/Down Sample"
+        "RNN, Single FC, Final Output",
     ]
 
-    dataset, scaler = getDataset()
+    dataset, scaler = get_dataset()
 
     accuracies = []
     p_accs = []
-    for i, model in models:
+    maes = []
+    for i, model in enumerate(models):
         print("--------------------------------------------------")
         print(f"Running model: {names[i]}) ({i+1}/{len(names)}")
         print("--------------------------------------------------")
 
-        acc, p_acc = KFCV(dataset, model, scaler, cluster=True)
+        acc, p_acc, mae = kfcv(dataset, model, scaler, cluster=True)
         accuracies.append(acc)
         p_accs.append(p_acc)
+        maes.append(mae)
+        print("\n")
 
     # Build DF for results
+    p_accs = np.array(p_accs)
     df = pd.DataFrame({
             "Architecture": names,
             "YM (Skin)": p_accs[:, 0],
@@ -67,14 +67,16 @@ def cnn_experiment():
             "PR (Adipose)": p_accs[:, 3],
             "Perm (Skin)": p_accs[:, 4],
             "Perm (Adipose)": p_accs[:, 5],
-            "Overall": accuracies
+            "Overall MAPE": accuracies,
+            "Overall MAE": maes
         })
         
     df = df.set_index("Architecture")
 
-    df.to_csv("../Results/FeatureExtraction.csv")
-    saveDf(df, fname="FeatureExtractionDF")
-    plotParameterBars(df, dfname="FeatureExtractionBars")
+    sns.set_theme()
+    df.to_csv("Results/CNN_Temp.csv")
+    save_df(df, fname="CNN_Temp")
+    plot_parameter_bars(df, fname="CNN_Temp_bars")
 
 def rnn_experiment():
     print()
@@ -83,6 +85,8 @@ def optimise():
     print()
 
 if __name__ == "__main__":
+    set_seed()
+
     if args.type == "CNN":
         cnn_experiment()
     elif args.type == "RNN":
