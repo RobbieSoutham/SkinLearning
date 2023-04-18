@@ -176,7 +176,7 @@ def test(test_loader, net, scaler, cluster=True):
     p_losses = []
     mae = []
 
-    def testBatch(it):
+    def test_batch(it):
         for _, data in enumerate(it):
                 inp, out = data['input'].to(DEVICE), data['output'].to(DEVICE)
                 predicted = net(inp)
@@ -200,12 +200,12 @@ def test(test_loader, net, scaler, cluster=True):
             with tqdm(test_loader, unit=" batch") as it:
                 testBatch(it)
         else:
-            testBatch(test_loader)
+            test_batch(test_loader)
             
     
             
-    average_mape = 100 - np.mean(losses)
-    average_p_loss = 100 - np.mean(p_losses, axis=0)
+    average_mape = np.mean(losses)
+    average_p_loss = np.mean(p_losses, axis=0)
     mae_mean = np.mean(mae)
     
     return average_mape, average_p_loss, mae_mean
@@ -259,6 +259,21 @@ def get_parameter_loss(models, names, test_loader, scaler, print=False):
         return df
 
 
+"""
+    Performs k-fold cross validation.
+
+    Parameters:
+        dataset (DataLoader):
+            The dataset to validate the models.
+        model (torch.NN):
+            The model to validate.
+        scalar (MinMaxScalar):
+            The scaler used to normalise the output variables.
+        k (int):
+            The number of folds to test.
+        cluster (boolean):
+            If performed on cluster will not use TQDM.
+"""
 def kfcv(dataset, model, scaler, k=5, cluster=False):
     # Initialize k and KFold
     kfold = KFold(n_splits=k, shuffle=True)
@@ -266,6 +281,7 @@ def kfcv(dataset, model, scaler, k=5, cluster=False):
     # Perform k-fold cross-validation
     accuracies = []
     p_accuracies = []
+    maes = []
 
     for fold, (train_index, valid_index) in enumerate(kfold.split(dataset), start=1):
         print(f"Testing fold {fold}")
@@ -274,7 +290,7 @@ def kfcv(dataset, model, scaler, k=5, cluster=False):
         valid_set = Subset(dataset, valid_index)
 
         train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
-        valid_loader = DataLoader(valid_set, batch_size=32)
+        valid_loader = DataLoader(valid_set, batch_size=32, shuffle=True)
 
         # Train the model
         train(
@@ -282,17 +298,20 @@ def kfcv(dataset, model, scaler, k=5, cluster=False):
             model,
             val_loader=valid_loader,
             LR=0.0001,
-            epochs=300,
+            epochs=1,
+            early_stopping=True,
             cluster=cluster)
 
-        accuracy, p_accuracy, _ = test(valid_loader, model, scaler, cluster=cluster)
+        accuracy, p_accuracy, mae = test(valid_loader, model, scaler, cluster=cluster)
         accuracies.append(accuracy)
         p_accuracies.append(p_accuracy)
+        maes.append(mae)
         print(f"Fold {fold} accuracy: {accuracy:.2f}%")
 
     # Calculate average accuracy across all folds
     avg_accuracy = np.mean(accuracies)
     avg_p_accuracy = np.mean(p_accuracies, axis=0)
+    avg_mae = np.mean(maes)
     print(f"Average accuracy: {avg_accuracy:.2f}%")
 
-    return avg_accuracy, avg_p_accuracy
+    return avg_accuracy, avg_p_accuracy, avg_mae
