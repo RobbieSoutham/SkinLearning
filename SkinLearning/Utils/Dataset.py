@@ -10,15 +10,15 @@ from sklearn.preprocessing import MinMaxScaler
 """
 def get_dataset(**kwargs):
     # Get filtered data
-    if "Data" in os.listdir():
+    """if "Data" in os.listdir():
         filtered_file = "Data/filtered.pkl"
         kwargs['sample_file'] = "Data/newSamples.pkl"
         kwargs['signal_folder'] = "../SamplingResults2/"
     else:
-        filtered_file = "../Data/filtered.pkl"
+        filtered_file = "../Data/filtered.pkl"""
 
     if not 'runs' in kwargs.keys():
-        with open(filtered_file, "rb") as f:
+        with open('Data/filtered.pkl', "rb") as f:
             runs = pickle.load(f)
 
         kwargs['runs'] = runs

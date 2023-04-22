@@ -10,7 +10,7 @@ import numpy as np
     Plots a bar chart for 100-MAPE of all parameters and overall
     for the given models in the dataframe
 """
-def plot_parameter_bars(df, fname=None):
+def plot_parameter_bars(df, fname=None, max_y=10):
     fig, ax = plt.subplots(1, 1, figsize=(20, 10), constrained_layout=True)
     df.plot.bar(ax=ax)
     
@@ -20,7 +20,7 @@ def plot_parameter_bars(df, fname=None):
     ax.set_xlabel("Accuracy (%)", fontsize=30)
     ax.legend(loc='center left', bbox_to_anchor=(1.0, 0.5),  prop={'size': 25})
     ax.set_title("Average percent correctness 100-MAPE", size=40, y=1.08)
-    ax.set_ylim(60, 100)
+    ax.set_ylim(0, max_y)
 
     if fname:
         fig.savefig(f"../Results/{fname}", bbox_inches='tight')

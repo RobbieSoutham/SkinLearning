@@ -9,7 +9,13 @@ from tqdm import tqdm
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Subset
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def set_gpu():
+    DEVICE = 'cuda'
+
+def set_cpu():
+    DEVICE = 'cpu'
 
 """
     Sets a given seed globally.
@@ -104,6 +110,7 @@ def train(
             cost.backward()
             optimizer.step()
     
+    # Mixed-precision training
     for epoch in range(epochs):
         net.train()
         
@@ -113,7 +120,7 @@ def train(
             with tqdm(train_loader, unit="batch") as it:
                 if epoch > 0:
                     it.set_postfix(lastLoss=losses[-1], valLoss=0 if len(val_losses) \
-                         == 0 else val_losses[-1], counter=counter, epoch=epoch+1/epochs)
+                        == 0 else val_losses[-1], counter=counter, epoch=epoch+1/epochs)
                 processBatch(it)
         
         loss /= len(train_loader)
@@ -198,12 +205,11 @@ def test(test_loader, net, scaler, cluster=True):
     with torch.no_grad():
         if not cluster:
             with tqdm(test_loader, unit=" batch") as it:
-                testBatch(it)
+                test_batch(it)
         else:
             test_batch(test_loader)
             
-    
-            
+    # Average metrics
     average_mape = np.mean(losses)
     average_p_loss = np.mean(p_losses, axis=0)
     mae_mean = np.mean(mae)
@@ -274,7 +280,7 @@ def get_parameter_loss(models, names, test_loader, scaler, print=False):
         cluster (boolean):
             If performed on cluster will not use TQDM.
 """
-def kfcv(dataset, model, scaler, k=5, cluster=False):
+def kfcv(model, dataset, scaler, k=5, cluster=False, parallel=False, track_str=None):
     # Initialize k and KFold
     kfold = KFold(n_splits=k, shuffle=True)
 
@@ -284,13 +290,48 @@ def kfcv(dataset, model, scaler, k=5, cluster=False):
     maes = []
 
     for fold, (train_index, valid_index) in enumerate(kfold.split(dataset), start=1):
-        print(f"Testing fold {fold}")
+        print(f"Testing fold {fold}", track_str if track_str else "")
         
-        train_set = Subset(dataset, train_index)
-        valid_set = Subset(dataset, valid_index)
+        if parallel:
+            # Create samplers for the train and validation subsets
+            train_sampler = torch.utils.data.distributed.DistributedSampler(
+                Subset(dataset, train_index),
+                num_replicas=torch.distributed.get_world_size(),
+                rank=torch.distributed.get_rank()
+            )
+            val_sampler = torch.utils.data.distributed.DistributedSampler(
+                Subset(dataset, valid_index),
+                num_replicas=torch.distributed.get_world_size(),
+                rank=torch.distributed.get_rank()
+            )
 
-        train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
-        valid_loader = DataLoader(valid_set, batch_size=32, shuffle=True)
+            # Create DataLoaders for the train and validation subsets
+            train_loader = torch.utils.data.DataLoader(
+                Subset(dataset, train_index),
+                batch_size=32,
+                sampler=train_sampler,
+                num_workers=4
+            )
+            valid_loader = torch.utils.data.DataLoader(
+                Subset(dataset, valid_index),
+                batch_size=32,
+                sampler=val_sampler,
+                num_workers=4
+            )
+        else:
+            train_set = Subset(dataset, train_index)
+            valid_set = Subset(dataset, valid_index)
+
+            train_loader = DataLoader(
+                train_set,
+                batch_size=32,
+                shuffle=True
+                )
+            valid_loader = DataLoader(
+                valid_set,
+                batch_size=32,
+                shuffle=True
+                )
 
         # Train the model
         train(
@@ -298,7 +339,7 @@ def kfcv(dataset, model, scaler, k=5, cluster=False):
             model,
             val_loader=valid_loader,
             LR=0.0001,
-            epochs=1,
+            epochs=1500,
             early_stopping=True,
             cluster=cluster)
 
@@ -306,12 +347,12 @@ def kfcv(dataset, model, scaler, k=5, cluster=False):
         accuracies.append(accuracy)
         p_accuracies.append(p_accuracy)
         maes.append(mae)
-        print(f"Fold {fold} accuracy: {accuracy:.2f}%")
+        print(f"Fold {fold} loss: {accuracy:.2f}%", track_str if track_str else "")
 
     # Calculate average accuracy across all folds
     avg_accuracy = np.mean(accuracies)
     avg_p_accuracy = np.mean(p_accuracies, axis=0)
     avg_mae = np.mean(maes)
-    print(f"Average accuracy: {avg_accuracy:.2f}%")
+    print(f"Average loss: {avg_accuracy:.2f}%", track_str if track_str else "")
 
     return avg_accuracy, avg_p_accuracy, avg_mae

@@ -1,11 +1,9 @@
 
 import os
 import pickle
-import sys
 from QMCSobolSequence import Generator
 from subprocess import Popen, run
 from argparse import ArgumentParser
-import shutil
 
 parser = ArgumentParser()
 parser.add_argument("-n", "--nsamples", help="Number of samples", type=int)
@@ -32,7 +30,7 @@ def getParameters(nSamples):
         [0.48, 0.499], # Skin PR
         [0.48, 0.499], # Skin PR
         [10e-12, 10e-10], # Skin perm
-        [10e-12, 10e-10, ] # Adipose perm
+        [10e-12, 10e-10] # Adipose perm
         ]
 
     gen = Generator(DIMS, BOUNDS)

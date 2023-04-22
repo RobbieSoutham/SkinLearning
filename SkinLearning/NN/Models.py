@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import Concatenate
 import torch
 from torch import nn
 
@@ -21,6 +22,29 @@ best_CNN = nn.Sequential(
     nn.ReLU(),
     nn.MaxPool1d(kernel_size=2, stride=2),
 )
+
+"""
+    Attention Mechanism for use with temporal nets.
+
+    Parameters:
+        in_size (int):
+            Size of the input tensor. 
+"""
+class Attention(nn.Module):
+    def __init__(self, in_size):
+        super(Attention, self).__init__()
+        self.fc = nn.Linear(in_size, 1)  # Change output size to 1 for attention scores
+        print("In size:", in_size)
+
+    def forward(self, lstm_outputs):
+        if lstm_outputs.dim() == 2:
+            lstm_outputs = lstm_outputs.unsqueeze(1)
+
+        attention_scores = self.fc(lstm_outputs).squeeze(-1)  # Squeeze the last dimension to obtain attention scores
+        attention_weights = torch.softmax(attention_scores, dim=-1)
+        context_vector = torch.sum(attention_weights.unsqueeze(-1) * lstm_outputs, dim=-2)
+
+        return context_vector, attention_weights
 
 """
     Configurable CNN + Temporal network
@@ -46,6 +70,8 @@ best_CNN = nn.Sequential(
                 h+o: combination of final hidden state and final output.
         temporal_type (string):
             Type of model to use (RNN, LSTM, GRU)
+        attention (boolean):
+            If True uses the attention mechanism.
 """
 class MultiTemporal(nn.Module):
     def __init__(
@@ -57,7 +83,8 @@ class MultiTemporal(nn.Module):
         out="f_hidden",
         layers=1,
         temporal_type="RNN",
-        fusion_method="concatenate"
+        fusion_method="concatenate",
+        attention=False
     ):
         super(MultiTemporal, self).__init__()
 
@@ -90,61 +117,60 @@ class MultiTemporal(nn.Module):
         else:
             raise ValueError("Invalid method. Choose from 'concatenate', 'multi_channel', or 'independent'.")
         
-            
-        fc_in = hidden_size
+
+        if out == "output":
+            if conv == False:
+                fc_in = hidden_size if fusion_method == 'concatenate' else hidden_size * 2
+            else:
+                fc_in = hidden_size * 2 * hidden_size
+        elif out == "hidden" or out  == 'f_hidden' or out == 'f_output':
+            fc_in = hidden_size
+        elif out == "h+o":
+            fc_in = 2 * hidden_size
+        else:
+            raise ValueError("Invalid output option. Choose from 'output', 'hidden', 'f_hidden', 'f_output', or 'h+o'.")
 
         if fusion_method == "independent":
             fc_in *= 2
-            
-        if out == "h+o":
-            fc_in *= 2
+        
 
-            
+        if attention:
+            self.attention = Attention(fc_in)
+
+        print("FC in:", fc_in)
         if single_fc:
             self.fc = nn.Linear(fc_in*layers, 6)
         else:
             self.fc = nn.Sequential(
-                nn.Linear(256 if temporal_type == 'LSTM' else fc_in, 128),
+                nn.Linear(fc_in, 128),
                 nn.ReLU(),
                 nn.Linear(128 , 64),
                 nn.ReLU(),
                 nn.Linear(64, 6),   
             )
             
-            if temporal_type == "LSTM" and conv == False:
-                if fc_in > 256:
-                    if fc_in == 4096:
-                        init_layers = nn.Sequential(
-                            nn.Linear(4096, 2048),
-                            nn.ReLU(),
-                            nn.Linear(2048, 1024),
-                            nn.ReLU(),
-                            nn.Linear(1024 , 512),
-                            nn.ReLU(),
-                            nn.Linear(512, 256), 
-                        )
-                    elif fc_in == 512:
-                        init_layers = nn.Sequential(
-                            nn.Linear(512, 256),
-                            nn.ReLU()
-                        )
-                    elif fc_in == 2048:
-                        init_layers = nn.Sequential(
-                            nn.Linear(2048, 1024),
-                            nn.ReLU(),
-                            nn.Linear(1024, 512),
-                            nn.ReLU(),
-                            nn.Linear(512, 256),
-                            nn.ReLU()
-                        )
-                        
-                    elif fc_in == 1024:
-                        init_layers = nn.Sequential(
-                            nn.Linear(1024, 512),
-                            nn.ReLU(),
-                            nn.Linear(512, 256),
-                            nn.ReLU()
-                        )
+            if False:
+                if fc_in > 1024:
+                     init_layers = nn.Sequential(
+                    nn.Linear(fc_in, 1024),
+                    nn.ReLU(),
+                    nn.Linear(1024, 512),
+                    nn.ReLU(),
+                    nn.Linear(512, 256),
+                    nn.ReLU()
+                    )
+                elif fc_in > 512:
+                    init_layers = nn.Sequential(
+                    nn.Linear(fc_in, 512),
+                    nn.ReLU(),
+                    nn.Linear(512, 256),
+                    nn.ReLU()
+                    )
+                else:    
+                    init_layers = nn.Sequential(
+                    nn.Linear(fc_in, 256),
+                    nn.ReLU()
+                    )
 
                     self.fc = nn.Sequential(init_layers, self.fc)
             print("\n")   
@@ -157,69 +183,51 @@ class MultiTemporal(nn.Module):
         else:
             x = x.reshape(batch_size, -1, self.input_size)
 
-        def getOutputs(inp):
+        def get_outputs(inp):
             if self.temporal_type == "LSTM":
                 o, (h, _) = self.net(inp)
             else:
                 o, h = self.net(inp)
             return o, h
 
-        
         if self.fusion_method == 'multi_channel':
-            o, h = getOutputs(x.view(batch_size, -1, 2))
+            o, h = get_outputs(x.view(batch_size, -1, 2))
         elif self.fusion_method == 'independent':
-            signal_size = self.input_size//2
-            signal1 = x[..., :signal_size].reshape(batch_size, -1, signal_size)
-            signal2 = x[..., signal_size:].reshape(batch_size, -1, signal_size)
-            
-            o1, h1, = getOutputs(signal1)
-            o2, h2 = getOutputs(signal2)
+            signal_size = self.input_size // 2
+            x1 = x[..., :signal_size].reshape(batch_size, -1, signal_size)
+            x2 = x[..., signal_size:].reshape(batch_size, -1, signal_size)
+            o1, h1 = get_outputs(x1)
+            o2, h2 = get_outputs(x2)
         else:
-            o, h = getOutputs(x)
-        
-        
+            o, h = get_outputs(x)
+
         if self.out == "f_hidden":
             if self.fusion_method == "independent":
-                x = torch.concat(
-                    [h1[-1], h2[-1]], dim=1
-                    ).reshape(batch_size, -1)
+                x = torch.cat([h1[-1], h2[-1]], dim=1).reshape(batch_size, -1)
             else:
                 x = h[-1].reshape(batch_size, -1)
         elif self.out == "hidden":
             if self.fusion_method == "independent":
-                x = torch.concat(
-                    [h1, h2], dim=1
-                    ).reshape(batch_size, -1)
-            else:   
+                x = torch.cat([h1, h2], dim=1).reshape(batch_size, -1)
+            else:
                 x = h.reshape(batch_size, -1)
         elif self.out == "f_output":
             if self.fusion_method == "independent":
-                x = torch.concat(
-                    [o1[:, -1, :], o2[:, -1, :]], dim=1
-                    ).reshape(batch_size, -1)
+                x = torch.cat([o1[:, -1, :], o2[:, -1, :]], dim=1).reshape(batch_size, -1)
             else:
                 x = o[:, -1, :].reshape(batch_size, -1)
         elif self.out == "output":
             if self.fusion_method == "independent":
-                x = torch.concat(
-                    [o1, o2], dim=1
-                    ).reshape(batch_size, -1)
+                x = torch.cat([o1, o2], dim=1).reshape(batch_size, -1)
             else:
                 x = o.reshape(batch_size, -1)
         elif self.out == "h+o":
-                if self.fusion_method == "independent":
-                    x1 = torch.concat(
-                        [h1[-1], o1[:, -1, :]], dim=1
-                        )
-                    
-                    x2 = torch.concat(
-                        [h2[-1], o2[:, -1, :]], dim=1
-                        )
-                    
-                    x = torch.concat([x1, x2], dim=1
-                        ).view(o2.size(0), -1)
-                else:
-                    x = torch.concat([h[-1], o[:, -1, :]], dim=1).view(o.size(0), -1)
+            if self.fusion_method == "independent":
+                x1 = torch.cat([h1[-1], o1[:, -1, :]], dim=1)
+                x2 = torch.cat([h2[-1], o2[:, -1, :]], dim=1)
+                x = torch.cat([x1, x2], dim=1).view(batch_size, -1)
+            else:
+                x = torch.cat([h[-1], o[:, -1, :]], dim=1).view(batch_size, -1)
             
         x = self.fc(x)
         return x
