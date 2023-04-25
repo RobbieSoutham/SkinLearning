@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Concatenate
 import torch
 from torch import nn
 
@@ -120,7 +119,7 @@ class MultiTemporal(nn.Module):
 
         if out == "output":
             if conv == False:
-                fc_in = hidden_size if fusion_method == 'concatenate' else hidden_size * 2
+                fc_in = hidden_size 
             else:
                 fc_in = hidden_size * 2 * hidden_size
         elif out == "hidden" or out  == 'f_hidden' or out == 'f_output':
@@ -137,7 +136,7 @@ class MultiTemporal(nn.Module):
         if attention:
             self.attention = Attention(fc_in)
 
-        print("FC in:", fc_in)
+        print("FC in:", fc_in, "HS", hidden_size)
         if single_fc:
             self.fc = nn.Linear(fc_in*layers, 6)
         else:

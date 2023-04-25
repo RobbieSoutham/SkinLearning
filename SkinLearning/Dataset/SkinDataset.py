@@ -85,10 +85,10 @@ def waveletExtraction(
     method,
     combined=False,
     wavelet='db4',
-    level=6,
+    level=7,
     combine_method='concatenate',
     order='freq',
-    levels=[6],
+    levels=[7],
     stats=['mean', 'std', 'skew', 'kurtosis'],
     normalization=None,
 ):

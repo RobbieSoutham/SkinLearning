@@ -3,11 +3,13 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from SkinLearning.Utils.Misc import get_gpu_usage
 import torch
 from torch import nn, optim
 from tqdm import tqdm
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Subset
+import gc
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -71,7 +73,7 @@ def train(
     train_loader,
     net,
     LR=0.1,
-    epochs=2000,
+    epochs=1500,
     val_loader=None,
     early_stopping=False,
     patience=50,
@@ -120,7 +122,7 @@ def train(
             with tqdm(train_loader, unit="batch") as it:
                 if epoch > 0:
                     it.set_postfix(lastLoss=losses[-1], valLoss=0 if len(val_losses) \
-                        == 0 else val_losses[-1], counter=counter, epoch=epoch+1/epochs)
+                        == 0 else val_losses[-1], counter=counter, epoch=f"{epoch+1}/{epochs}")
                 processBatch(it)
         
         loss /= len(train_loader)
@@ -280,7 +282,16 @@ def get_parameter_loss(models, names, test_loader, scaler, print=False):
         cluster (boolean):
             If performed on cluster will not use TQDM.
 """
-def kfcv(model, dataset, scaler, k=5, cluster=False, parallel=False, track_str=None):
+def kfcv(
+    dataset,
+    scaler,
+    model_init,
+    model_args,
+    k=5,
+    cluster=False,
+    distributed=False,
+    track_str=None
+     ):
     # Initialize k and KFold
     kfold = KFold(n_splits=k, shuffle=True)
 
@@ -292,7 +303,7 @@ def kfcv(model, dataset, scaler, k=5, cluster=False, parallel=False, track_str=N
     for fold, (train_index, valid_index) in enumerate(kfold.split(dataset), start=1):
         print(f"Testing fold {fold}", track_str if track_str else "")
         
-        if parallel:
+        if distributed:
             # Create samplers for the train and validation subsets
             train_sampler = torch.utils.data.distributed.DistributedSampler(
                 Subset(dataset, train_index),
@@ -310,13 +321,13 @@ def kfcv(model, dataset, scaler, k=5, cluster=False, parallel=False, track_str=N
                 Subset(dataset, train_index),
                 batch_size=32,
                 sampler=train_sampler,
-                num_workers=4
+                num_workers=2
             )
             valid_loader = torch.utils.data.DataLoader(
                 Subset(dataset, valid_index),
                 batch_size=32,
                 sampler=val_sampler,
-                num_workers=4
+                num_workers=2
             )
         else:
             train_set = Subset(dataset, train_index)
@@ -325,7 +336,7 @@ def kfcv(model, dataset, scaler, k=5, cluster=False, parallel=False, track_str=N
             train_loader = DataLoader(
                 train_set,
                 batch_size=32,
-                shuffle=True
+                shuffle=True,
                 )
             valid_loader = DataLoader(
                 valid_set,
@@ -333,6 +344,7 @@ def kfcv(model, dataset, scaler, k=5, cluster=False, parallel=False, track_str=N
                 shuffle=True
                 )
 
+        model=model_init(**model_args)
         # Train the model
         train(
             train_loader,
@@ -348,6 +360,11 @@ def kfcv(model, dataset, scaler, k=5, cluster=False, parallel=False, track_str=N
         p_accuracies.append(p_accuracy)
         maes.append(mae)
         print(f"Fold {fold} loss: {accuracy:.2f}%", track_str if track_str else "")
+        
+        # Clean up, prevent memory fragmentation
+        del model
+        torch.cuda.empty_cache()
+        gc.collect()
 
     # Calculate average accuracy across all folds
     avg_accuracy = np.mean(accuracies)
