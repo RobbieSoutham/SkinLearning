@@ -121,7 +121,7 @@ class MultiTemporal(nn.Module):
             if conv == False:
                 fc_in = hidden_size 
             else:
-                fc_in = hidden_size * 2 * hidden_size
+                fc_in = hidden_size * 2 * 256
         elif out == "hidden" or out  == 'f_hidden' or out == 'f_output':
             fc_in = hidden_size
         elif out == "h+o":
@@ -175,6 +175,8 @@ class MultiTemporal(nn.Module):
             print("\n")   
 
     def forward(self, x):
+        # Flatten weights to avoid fragmentation
+        self.net.flatten_parameters()
         batch_size = x.shape[0]
         
         if self.conv:

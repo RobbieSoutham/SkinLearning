@@ -351,7 +351,7 @@ def kfcv(
             model,
             val_loader=valid_loader,
             LR=0.0001,
-            epochs=1500,
+            epochs=2000,
             early_stopping=True,
             cluster=cluster)
 

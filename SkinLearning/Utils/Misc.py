@@ -9,7 +9,7 @@ def running_in_notebook():
         from IPython import get_ipython
         if "IPKernelApp" not in get_ipython().config:
             return False
-    except (NameError, ImportError):
+    except:
         return False
     return True
 

@@ -31,7 +31,7 @@ parser = ArgumentParser()
 
 out_options = ['f_hidden', 'f_output', 'output', 'hidden', 'h+o']
 temporal_types = ['LSTM', 'GRU', 'RNN']
-single_fc_options = [True, False]
+single_fc_options = [False]
 fusion_methods = ['independent', 'concatenate']
 
 parser.add_argument(
@@ -49,6 +49,12 @@ parser.add_argument(
     '-te', '--temporal_type',
     nargs='+',
     help='The type of temporal net to use'
+    )
+
+parser.add_argument(
+    '-f', '--fusion_method',
+    type=str,
+    help='The fusion method to use for WPD'
     )
 
 parser.add_argument(
@@ -78,10 +84,10 @@ def init_model(**kwargs):
 """
     Parses results for main KFCV experiments
 """
-def get_top_results(limit_reached, results, exp, start):
+def get_top_results(limit_reached, results, start, fname):
     if limit_reached:
         # Save to continue later
-        with open(f"Results//KFCV/{exp}/{temporal_type}_partial.pkl", "wb") as f:
+        with open(f"Results//KFCV/{fname}_partial.pkl", "wb") as f:
             pickle.dump(results, f)
     else:
 
@@ -99,22 +105,37 @@ def get_top_results(limit_reached, results, exp, start):
             'Overall MAE'
             ]
         top_df = pd.DataFrame(columns=columns)
+        all_df = pd.DataFrame(columns=columns)
 
         # Print the top 3 models based on their MAE performance
-        for i in range(3):
-            print(f'Model {i + 1}: {sorted_results[i][1]}, MAE: {sorted_results[i][0]}')
-            top_df.loc[str(sorted_results[i][-1])] = [
-                sorted_results[i][2][0],
-                sorted_results[i][2][1],
-                sorted_results[i][2][2],
-                sorted_results[i][2][3],
-                sorted_results[i][2][4],
-                sorted_results[i][2][5],
-                sorted_results[i][1],
-                sorted_results[i][0]
-                ]
-        
-        top_df.to_csv(f'Results/KFCV/{exp}/{temporal_type}.csv')
+        for i in range(len(sorted_results)):
+            all_df.loc[str(sorted_results[i][-1])] = [
+                    sorted_results[i][2][0],
+                    sorted_results[i][2][1],
+                    sorted_results[i][2][2],
+                    sorted_results[i][2][3],
+                    sorted_results[i][2][4],
+                    sorted_results[i][2][5],
+                    sorted_results[i][1],
+                    sorted_results[i][0]
+                    ]
+
+            if i < 4:
+                print(f'Model {i + 1}: {sorted_results[i][1]}, MAE: {sorted_results[i][0]}')
+                top_df.loc[str(sorted_results[i][-1])] = [
+                    sorted_results[i][2][0],
+                    sorted_results[i][2][1],
+                    sorted_results[i][2][2],
+                    sorted_results[i][2][3],
+                    sorted_results[i][2][4],
+                    sorted_results[i][2][5],
+                    sorted_results[i][1],
+                    sorted_results[i][0]
+                    ]
+
+
+        top_df.to_csv(f'Results/KFCV/{fname}_top3.csv')
+        all_df.to_csv(f'Results/KFCV/{fname}.csv')
         
         elapsed_time = time.time() - start
         hours = int(elapsed_time / 3600)
@@ -127,7 +148,7 @@ def get_top_results(limit_reached, results, exp, start):
                 )
             )
 
-def cnn_temporal_sweep(temporal_type, local_rank=None):
+def cnn_temporal_sweep(temporal_type):
     start = time.time()
     if torch.cuda.device_count() > 1:
         print("Using", torch.cuda.device_count(), "GPUs")
@@ -172,12 +193,12 @@ def cnn_temporal_sweep(temporal_type, local_rank=None):
         
         print('\n')
 
-    get_top_results(limit_reached, results, "CNN", start)
+    get_top_results(limit_reached, results, start, f"CNN/{temporal_type}_multi")
 
-def wpd_temporal_sweep(temporal_type, distributed=False):
+def wpd_temporal_sweep(temporal_type, fusion_method=None, distributed=False):
     set_seed()
     combinations = list(itertools.product(
-        out_options, single_fc_options, fusion_methods
+        out_options, single_fc_options
         ))
 
     extraction_args = {
@@ -197,7 +218,7 @@ def wpd_temporal_sweep(temporal_type, distributed=False):
     results = []
     start = time.time()
     limit_reached = False
-    for i, (out, single_fc, fusion_method) in enumerate(combinations):
+    for i, (out, single_fc) in enumerate(combinations):
          # Check if time limit almost reached (71.5 hours)
         if time.time() - start >= 257400:
             
@@ -213,7 +234,7 @@ def wpd_temporal_sweep(temporal_type, distributed=False):
         
         input_size = len(dataset[0]['input'])
         
-
+        print(fusion_method)
         model_args = {
             'conv': False,
             'out': out,
@@ -234,55 +255,13 @@ def wpd_temporal_sweep(temporal_type, distributed=False):
             distributed=distributed
             )
 
-        results.append((mae, mape, param_mape, (out, temporal_type, fusion_method, single_fc)))
+        results.append(
+            (mae, mape, param_mape, (out, temporal_type, fusion_method, single_fc))
+            )
         
         #get_gpu_usage()
 
-    if limit_reached:
-        # Save to continue later
-        with open(f"Results/KFCV/WPD/{temporal_type}_partial.pkl", "wb") as f:
-            pickle.dump(results, f)
-    else:
-
-        # Sort the results by MAE in ascending order
-        sorted_results = sorted(results, key=lambda x: x[0])
-
-        columns=[
-            'YM (Skin)',
-            'YM (Adipose)',
-            'PR (Skin)',
-            'PR (Adipose)',
-            'Perm (Skin)',
-            'Perm (Adipose)',
-            'Overall MAPE',
-            'Overall MAE'
-            ]
-        top_df = pd.DataFrame(columns=columns)
-
-        # Print the top 3 models based on their MAE performance
-        for i in range(3):
-            print(f'Model {i + 1}: {sorted_results[i][1]}, MAE: {sorted_results[i][0]}')
-            top_df.loc[str(sorted_results[i][-1])] = [
-                sorted_results[i][2][0],
-                sorted_results[i][2][1],
-                sorted_results[i][2][2],
-                sorted_results[i][2][3],
-                sorted_results[i][2][4],
-                sorted_results[i][2][5],
-                sorted_results[i][1],
-                sorted_results[i][0]
-                ]
-        
-        top_df.to_csv(f'Results/KFCV/WPD/{temporal_type}.csv')
-        elapsed_time = time.time() - start
-        hours = int(elapsed_time / 3600)
-        minutes = int((elapsed_time % 3600) / 60)
-        seconds = int(elapsed_time % 60)
-        print(
-            "Elapsed time: {} hours, {} minutes, {} seconds".format(
-                hours, minutes, seconds
-                )
-            )
+        get_top_results(limit_reached, results, start, f"WPD/{temporal_type}_{fusion_method}")
 
 def best_wpd_fc_sweep(temporal_type):
     extraction_args = {
@@ -416,11 +395,11 @@ torch.cuda.set_device(local_rank)"""
 if __name__ == '__main__':
     set_seed()
 
-    def choose_exp(temporal_type=None,):
+    def choose_exp(temporal_type=None, fusion_method=None):
         if args.type == 'CNN':
             cnn_temporal_sweep(temporal_type)
         elif args.type == 'WPD':
-            wpd_temporal_sweep(temporal_type)
+            wpd_temporal_sweep(temporal_type, fusion_method)
         elif args.type == 'Optimisation':
             optimise()
         elif args.type == 'WPD_FC':
@@ -431,7 +410,12 @@ if __name__ == '__main__':
     # Iterate through selected models if given
     if args.temporal_type:
         for temporal_type in args.temporal_type:
-            choose_exp(temporal_type) 
+            if args.fusion_method:
+                choose_exp(temporal_type, args.fusion_method)
+            else:
+                choose_exp(temporal_type) 
+    elif args.fusion_method:
+        choose_exp(fusion_method=args.fusion_method) 
     else:
         choose_exp()
 
