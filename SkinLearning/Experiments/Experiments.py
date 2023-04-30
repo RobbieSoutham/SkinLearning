@@ -11,6 +11,7 @@ from SkinLearning.NN.Models import DualDown, DualDownUp, DualUp, DualUpDown, Mul
 from SkinLearning.NN.Helpers import kfcv, DEVICE, set_seed
 from SkinLearning.Utils.Plotting import plot_parameter_bars, save_df
 from SkinLearning.Utils.Dataset import get_dataset
+from .ModelArgs import *
 import gc
 import numpy as np
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -29,16 +30,16 @@ seeds = [
 ]
 parser = ArgumentParser()
 
-out_options = ['f_hidden', 'f_output', 'output', 'hidden', 'h+o']
+out_options = ['hidden']
 temporal_types = ['LSTM', 'GRU', 'RNN']
-single_fc_options = [False]
+single_fc_options = [True, False]
 fusion_methods = ['independent', 'concatenate']
 
 parser.add_argument(
     '-t', '--type',
     help='Type of experiemnts',
     type=str,
-    choices = ['CNN', 'WPD', 'Optimisation', 'WPD_FC'],
+    choices = ['CNN', 'WPD', 'Optimisation', 'WPD_FC', 'Attention', 'Final'],
     # CNN tests feature extraction from just the convolutional layers
     # RNN tests the different types of outputs from RNN and derivatives
     # Optimisation optimised HPs,
@@ -55,6 +56,24 @@ parser.add_argument(
     '-f', '--fusion_method',
     type=str,
     help='The fusion method to use for WPD'
+    )
+
+parser.add_argument(
+    '-m', '--model',
+    type=int,
+    help='Index of one of the top 3 models if required'
+)
+
+parser.add_argument(
+    '-r', '--runs',
+    nargs='+',
+    help='List of runs for final comparison'
+    )
+
+parser.add_argument(
+    '-s', '--single_fc',
+    action='store_true',
+    help='To use single or multiple FC layers'
     )
 
 parser.add_argument(
@@ -87,7 +106,7 @@ def init_model(**kwargs):
 def get_top_results(limit_reached, results, start, fname):
     if limit_reached:
         # Save to continue later
-        with open(f"Results//KFCV/{fname}_partial.pkl", "wb") as f:
+        with open(f"Results/KFCV/{fname}_partial.pkl", "wb") as f:
             pickle.dump(results, f)
     else:
 
@@ -120,7 +139,7 @@ def get_top_results(limit_reached, results, start, fname):
                     sorted_results[i][0]
                     ]
 
-            if i < 4:
+            if i < 3:
                 print(f'Model {i + 1}: {sorted_results[i][1]}, MAE: {sorted_results[i][0]}')
                 top_df.loc[str(sorted_results[i][-1])] = [
                     sorted_results[i][2][0],
@@ -148,19 +167,19 @@ def get_top_results(limit_reached, results, start, fname):
                 )
             )
 
-def cnn_temporal_sweep(temporal_type):
+def cnn_temporal_sweep(temporal_type, single_fc):
     start = time.time()
     if torch.cuda.device_count() > 1:
         print("Using", torch.cuda.device_count(), "GPUs")
     
-    combinations = list(itertools.product(
+    """combinations = list(itertools.product(
         out_options, single_fc_options
-        ))
+        ))"""
     dataset, scaler = get_dataset()
 
     results = []
     limit_reached = False
-    for i, (out, single_fc) in enumerate(combinations):
+    for i, out in enumerate(out_options):
         # Check if time limit almost reached (71.2 hours)
         if time.time() - start >= 257400:
             
@@ -169,14 +188,14 @@ def cnn_temporal_sweep(temporal_type):
 
         print(
             f"Testing {temporal_type} with {'Single FC' if single_fc else 'Multi FC'} using {out}",
-            f"{i+1}/{len(combinations)}"
+            f"{i+1}/{len(out_options)}"
             )
 
         model_args = {
             'conv': True,
             'out': out,
             'temporal_type': temporal_type,
-            'single_fc': False,
+            'single_fc': single_fc,
             'input_size': 15,
             'hidden_size': 128
         }
@@ -187,13 +206,13 @@ def cnn_temporal_sweep(temporal_type):
             model_init=init_model,
             model_args=model_args,
             cluster=False,
-            track_str=f"for model {i+1}/{len(combinations)}",
+            track_str=f"for model {i+1}/{len(out_options)}",
             )
         results.append((mae, mape, param_mape, (out, temporal_type, single_fc)))
         
         print('\n')
 
-    get_top_results(limit_reached, results, start, f"CNN/{temporal_type}_multi")
+    get_top_results(limit_reached, results, start, f"CNN/{temporal_type}_{'single' if single_fc else 'multi'}x")
 
 def wpd_temporal_sweep(temporal_type, fusion_method=None, distributed=False):
     set_seed()
@@ -239,7 +258,7 @@ def wpd_temporal_sweep(temporal_type, fusion_method=None, distributed=False):
             'conv': False,
             'out': out,
             'temporal_type': temporal_type,
-            'single_fc': False,
+            'single_fc': single_fc,
             'input_size': input_size,
             'hidden_size': input_size*2,
             'fusion_method': fusion_method
@@ -263,96 +282,100 @@ def wpd_temporal_sweep(temporal_type, fusion_method=None, distributed=False):
 
         get_top_results(limit_reached, results, start, f"WPD/{temporal_type}_{fusion_method}")
 
-def best_wpd_fc_sweep(temporal_type):
-    extraction_args = {
-            "signals": None,
-            "method": "entropy",
-            "combined": False,
-            "wavelet": "db4",
-            "level": 7,
-            "order": "natural",
-            "levels": [7],
-            "normalization": False,
-            "stats": None,
-        }
+def best_wpd_fc_sweep():
+    extraction_args = EXTRACTION_ARGS
 
-    dataset, scaler = get_dataset(extraction_args=extraction_args)
+    dataset, scaler = get_dataset(
+        extraction_args=extraction_args,
+        )
 
+    model_args = [TOP_WPD_ARGS[0]]
+            
+    names = [WPD_NAMES[0]]
+
+    
+    run_experiment(model_args, names, f"WPD/Further FCs/top1_2fc", dataset, scaler)
+
+def test_attention(temporal_type, model):
     models = []
     names = []
 
-    input_size = len(dataset[0]['input'])
-    if '1' in temporal_type:
-        models.append(
-            MultiTemporal(
-                conv=False,
-                out='f_hidden',
-                temporal_type='RNN',
-                input_size=input_size,
-                hidden_size=input_size*2,
-                fusion_method="independent",
-                single_fc=False
-            )
-        )
-        names.append('Independent, RNN, multi FC, f_hidden')
+    if temporal_type == 'CNN':
+        dataset, scaler = get_dataset()
+        model_args = TOP_CNN_ARGS[model]
+        names = CNN_NAMES[model]
+    else:
+        dataset, scaler = get_dataset(extraction_args=EXTRACTION_ARGS)
+        model_args = TOP_WPD_ARGS[model]
+        names = WPD_NAMES[model]
+    
+    model_args['attention'] = True
+    
+    run_experiment([model_args], [names], f"Attention/{temporal_type}_{model}_lowerPatience", dataset, scaler)
 
-    if '2' in temporal_type:
-        models.append(
-            MultiTemporal(
-                conv=False,
-                out='f_output',
-                temporal_type='GRU',
-                input_size=input_size,
-                hidden_size=input_size*2,
-                fusion_method="independent",
-                single_fc=False
-            )
-        )
-        names.append('Independent, GRU, multi FC, f_output')
-        
-    if '3' in temporal_type:
-        models.append(
-            MultiTemporal(
-                conv=False,
-                out='output',
-                temporal_type='GRU',
-                input_size=input_size,
-                hidden_size=input_size*2,
-                fusion_method="independent",
-                single_fc=False
-            )
-        )
-        names.append('Concatenate, GRU, multi FC, output')
-    print(input_size)
-    run_experiment(models, names, f"WPD/Further_FCs{temporal_type}", dataset, scaler)
 
-def run_experiment(models, names, fname, dataset, scaler):
+def multi_seed_comp(temporal_type, runs):
+    names = []
+
+    if temporal_type == 'CNN':
+        dataset, scaler = get_dataset()
+        model_args = TOP_CNN_ARGS[0]
+        names = CNN_NAMES[0]
+    else:
+        dataset, scaler = get_dataset(extraction_args=EXTRACTION_ARGS)
+        model_args = TOP_WPD_ARGS[0]
+        names = WPD_NAMES[0]
+    
+    runs = [int(run) for run in runs]
+    run_experiment(
+        [model_args],
+        [names],
+        f"Final Comparison/{temporal_type}_{min(runs)}_{max(runs)}",
+        dataset,
+        scaler,
+        runs=runs
+        )
+
+
+def run_experiment(model_args, names, fname, dataset, scaler, runs=None):
+    if runs is None:
+        runs = [0]
+
     all_df = None
-    for i in range(1):
-        print(f'Starting kfold for run {i+1}/10')
+
+    start_time = time.time()
+    for i in runs:
+        print(f'Starting kfold for run {i+1}/{len(runs)}')
         set_seed(seeds[i])
 
         accuracies = []
         p_accs = []
         maes = []
-        for j, model in enumerate(models):
+        for j, model_arg in enumerate(model_args):
             print('--------------------------------------------------')
-            print(f'Running model: {names[j]}) ({j+1}/{len(names)}')
+            print(f'Running model: {names[j]} ({j+1}/{len(names)})')
             print('--------------------------------------------------')
 
-            acc, p_acc, mae = kfcv(
-                model,
+            acc, p_acc, mae, train_losses, val_losses = kfcv(
                 dataset,
                 scaler,
-                track_str=f"for model {i+1}/{len(models)}")
+                model_init=init_model,
+                model_args=model_arg,
+                track_str=f"for model {i+1}/{len(names)}")
             accuracies.append(acc)
             p_accs.append(p_acc)
             maes.append(mae)
             print('\n')
 
+            # Record train/val curve for seed 1
+            if i == 0:
+                with open(f'Results/KFCV/{fname}_train_val.pkl', 'wb') as f:
+                    pickle.dump([train_losses, val_losses], f)
+
+
         # Build DF for results
         p_accs = np.array(p_accs)
-        df = pd.DataFrame({
+        cols = {
                 'Architecture': names,
                 'YM (Skin)': p_accs[:, 0],
                 'YM (Adipose)': p_accs[:, 1],
@@ -361,9 +384,13 @@ def run_experiment(models, names, fname, dataset, scaler):
                 'Perm (Skin)': p_accs[:, 4],
                 'Perm (Adipose)': p_accs[:, 5],
                 'Overall MAPE': accuracies,
-                'Overall MAE': maes,
-                #'runs': [i for k in range(len(names))]
-            })
+                'Overall MAE': maes
+        }
+
+        if len(runs) != 1:
+            cols['Run'] = [i for k in range(len(names))]
+
+        df = pd.DataFrame(cols)
         
         if all_df is None:
             all_df = df
@@ -373,6 +400,19 @@ def run_experiment(models, names, fname, dataset, scaler):
     all_df.to_csv(f'Results/KFCV/{fname}.csv')
     print(all_df)
 
+    elapsed_time = time.time() - start_time
+    hours = int(elapsed_time / 3600)
+    minutes = int((elapsed_time % 3600) / 60)
+    seconds = int(elapsed_time % 60)
+    
+    print(
+        "Elapsed time: {} hours, {} minutes, {} seconds".format(
+            hours, minutes, seconds
+            )
+        )
+
+    with open(f'Results/KFCV/{fname}_time.txt', 'w') as f:
+            f.write(str(elapsed_time))
 def optimise():
     print()
 
@@ -397,15 +437,17 @@ if __name__ == '__main__':
 
     def choose_exp(temporal_type=None, fusion_method=None):
         if args.type == 'CNN':
-            cnn_temporal_sweep(temporal_type)
+            cnn_temporal_sweep(temporal_type, args.single_fc)
         elif args.type == 'WPD':
             wpd_temporal_sweep(temporal_type, fusion_method)
         elif args.type == 'Optimisation':
             optimise()
         elif args.type == 'WPD_FC':
-            # Temporal type corresponds to top 3 models
-            # E.g. a list containing permuations of 1, 2 3
-            best_wpd_fc_sweep(temporal_type)
+            best_wpd_fc_sweep()
+        elif args.type == 'Attention':
+            test_attention(temporal_type, args.model)
+        elif args.type == 'Final':
+            multi_seed_comp(temporal_type, args.runs)
 
     # Iterate through selected models if given
     if args.temporal_type:

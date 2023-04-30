@@ -141,16 +141,19 @@ class MultiTemporal(nn.Module):
             self.fc = nn.Linear(fc_in*layers, 6)
         else:
             self.fc = nn.Sequential(
-                nn.Linear(fc_in, 128),
+                nn.Linear(fc_in if fc_in <= 256 or conv else 256, 128),
                 nn.ReLU(),
                 nn.Linear(128 , 64),
                 nn.ReLU(),
                 nn.Linear(64, 6),   
             )
             
-            if False:
-                if fc_in > 1024:
+            # 3 for h+o and final states best
+            if fc_in > 256 and not conv:
+                if fc_in == 4096:
                      init_layers = nn.Sequential(
+                    #nn.Linear(fc_in, 2048),
+                    #nn.ReLU(),
                     nn.Linear(fc_in, 1024),
                     nn.ReLU(),
                     nn.Linear(1024, 512),
@@ -158,20 +161,17 @@ class MultiTemporal(nn.Module):
                     nn.Linear(512, 256),
                     nn.ReLU()
                     )
-                elif fc_in > 512:
+                elif fc_in == 2048:
                     init_layers = nn.Sequential(
-                    nn.Linear(fc_in, 512),
+                    nn.Linear(fc_in, 1024),
+                    nn.ReLU(),
+                    nn.Linear(1024, 512),
                     nn.ReLU(),
                     nn.Linear(512, 256),
                     nn.ReLU()
                     )
-                else:    
-                    init_layers = nn.Sequential(
-                    nn.Linear(fc_in, 256),
-                    nn.ReLU()
-                    )
 
-                    self.fc = nn.Sequential(init_layers, self.fc)
+                self.fc = nn.Sequential(init_layers, self.fc)
             print("\n")   
 
     def forward(self, x):
