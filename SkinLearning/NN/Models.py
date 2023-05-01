@@ -32,16 +32,17 @@ best_CNN = nn.Sequential(
 class Attention(nn.Module):
     def __init__(self, in_size):
         super(Attention, self).__init__()
-        self.fc = nn.Linear(in_size, 1)  # Change output size to 1 for attention scores
-        print("In size:", in_size)
+        self.fc1 = nn.Linear(in_size, in_size)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(in_size, 1)
 
-    def forward(self, lstm_outputs):
-        if lstm_outputs.dim() == 2:
-            lstm_outputs = lstm_outputs.unsqueeze(1)
+    def forward(self, temporal_outputs):
+        if temporal_outputs.dim() == 2:
+            temporal_outputs = temporal_outputs.unsqueeze(1)
 
-        attention_scores = self.fc(lstm_outputs).squeeze(-1)  # Squeeze the last dimension to obtain attention scores
+        attention_scores = self.fc1(temporal_outputs).squeeze(-1)  # Squeeze the last dimension to obtain attention scores
         attention_weights = torch.softmax(attention_scores, dim=-1)
-        context_vector = torch.sum(attention_weights.unsqueeze(-1) * lstm_outputs, dim=-2)
+        context_vector = torch.sum(attention_weights.unsqueeze(-1) * temporal_outputs, dim=-2)
 
         return context_vector, attention_weights
 
@@ -134,7 +135,11 @@ class MultiTemporal(nn.Module):
         
 
         if attention:
-            self.attention = Attention(fc_in)
+            if fusion_method == 'independent':
+                self.attention1 = Attention(fc_in // 2)
+                self.attention2 = Attention(fc_in // 2)
+            else:
+                self.attention = Attention(fc_in)
 
         print("FC in:", fc_in, "HS", hidden_size)
         if single_fc:
@@ -226,10 +231,15 @@ class MultiTemporal(nn.Module):
             if self.fusion_method == "independent":
                 x1 = torch.cat([h1[-1], o1[:, -1, :]], dim=1)
                 x2 = torch.cat([h2[-1], o2[:, -1, :]], dim=1)
+
+                if self.attention1:
+                    x1 = self.attention1(x1)
+                    x2 = self.attention2(x2)
+
                 x = torch.cat([x1, x2], dim=1).view(batch_size, -1)
             else:
                 x = torch.cat([h[-1], o[:, -1, :]], dim=1).view(batch_size, -1)
-            
+
         x = self.fc(x)
         return x
 
@@ -283,6 +293,7 @@ class DualDownUp(nn.Module):
 
     def forward(self, x):
         x = self.cnn(x)
+
         x = self.fc(x)
 
         return x

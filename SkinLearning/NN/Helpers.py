@@ -3,7 +3,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from SkinLearning.Utils.Misc import get_gpu_usage
+#from SkinLearning.Utils.Misc import get_gpu_usage
 import torch
 from torch import nn, optim
 from tqdm import tqdm
@@ -79,11 +79,11 @@ def train(
     patience=50,
     optimizer=optim.Adam,
     plot=False,
-    cluster=False
+    cluster=False,
+    criterion=nn.L1Loss()
 ):
     net.to(DEVICE)
     optimizer = optimizer(net.parameters(), lr=LR)
-    criterion = nn.L1Loss()
     val_losses = []        
     losses = []
     best_val_loss = 1e10
@@ -290,7 +290,10 @@ def kfcv(
     k=5,
     cluster=False,
     distributed=False,
-    track_str=None
+    track_str=None,
+    batch_size=32,
+    LR=0.0001,
+    criterion=nn.L1Loss()
      ):
     # Initialize k and KFold
     kfold = KFold(n_splits=k, shuffle=True)
@@ -299,6 +302,7 @@ def kfcv(
     accuracies = []
     p_accuracies = []
     maes = []
+    val_losses, train_losses = [], []
 
     for fold, (train_index, valid_index) in enumerate(kfold.split(dataset), start=1):
         print(f"Testing fold {fold}", track_str if track_str else "")
@@ -335,25 +339,29 @@ def kfcv(
 
             train_loader = DataLoader(
                 train_set,
-                batch_size=32,
+                batch_size=batch_size,
                 shuffle=True,
                 )
             valid_loader = DataLoader(
                 valid_set,
-                batch_size=32,
+                batch_size=batch_size,
                 shuffle=True
                 )
 
         model=model_init(**model_args)
         # Train the model
-        train(
+        train_loss, val_loss = train(
             train_loader,
             model,
             val_loader=valid_loader,
-            LR=0.0001,
+            LR=LR,
             epochs=2000,
             early_stopping=True,
-            cluster=cluster)
+            cluster=cluster,
+            criterion=criterion)
+        
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
 
         accuracy, p_accuracy, mae = test(valid_loader, model, scaler, cluster=cluster)
         accuracies.append(accuracy)
@@ -372,4 +380,4 @@ def kfcv(
     avg_mae = np.mean(maes)
     print(f"Average loss: {avg_accuracy:.2f}%", track_str if track_str else "")
 
-    return avg_accuracy, avg_p_accuracy, avg_mae
+    return avg_accuracy, avg_p_accuracy, avg_mae, train_losses, val_losses

@@ -301,7 +301,7 @@ def test_attention(temporal_type, model):
     names = []
 
     if temporal_type == 'CNN':
-        dataset, scaler = get_dataset()
+        dataset, scaler = get_dataset(runs=[1,2,3])
         model_args = TOP_CNN_ARGS[model]
         names = CNN_NAMES[model]
     else:
@@ -310,8 +310,10 @@ def test_attention(temporal_type, model):
         names = WPD_NAMES[model]
     
     model_args['attention'] = True
+    model_args['single_fc'] = True
     
-    run_experiment([model_args], [names], f"Attention/{temporal_type}_{model}_lowerPatience", dataset, scaler)
+    run_experiment([model_args], [names], f"Attention/{temporal_type}_{model}_test", dataset, scaler)
+
 
 
 def multi_seed_comp(temporal_type, runs):
@@ -413,8 +415,99 @@ def run_experiment(model_args, names, fname, dataset, scaler, runs=None):
 
     with open(f'Results/KFCV/{fname}_time.txt', 'w') as f:
             f.write(str(elapsed_time))
-def optimise():
-    print()
+
+def optimise(temporal_type, model=None):
+    if temporal_type == 'CNN':
+        dataset, scaler = get_dataset()
+        model_args = TOP_CNN_ARGS[model]
+        names = CNN_NAMES[model]
+    else:
+        dataset, scaler = get_dataset(extraction_args=EXTRACTION_ARGS)
+        model_args = TOP_WPD_ARGS[model]
+        names = WPD_NAMES[model]
+
+    # Test only lower batch_sizes for generalisation
+    # Increasing likely not to lead to improvement
+    batch_sizes = [8, 16, 32]
+
+    """    if model == 1:
+        loss_fns = [nn.L1Loss()]
+    elif model == 0:
+        loss_fns = [nn.MSELoss()]
+    else:"""
+    loss_fns = [nn.L1Loss(), nn.MSELoss()]
+
+    best_params = []
+    best_loss = 10e3
+
+    total_exps = len(loss_fns) * len(batch_sizes)
+    i = 0
+    for loss_fn in loss_fns:
+        for batch_size in batch_sizes:
+            print(
+            f'Testing {temporal_type} with {batch_size} batch size and {loss_fn} {i+1}/{total_exps}'
+            )
+        
+            input_size = len(dataset[0]['input'])
+
+            mape, param_mape, mae, train_losses, val_losses = kfcv(
+                dataset,
+                scaler,
+                model_init=init_model,
+                model_args=model_args,
+                cluster=False,
+                track_str=f"for model {i+1}/{total_exps}",
+                criterion=loss_fn,
+                batch_size=batch_size
+                )
+
+            if best_loss > mae:
+                best_res = [mae, mape, param_mape, train_losses, val_losses]
+                best_params = [batch_size, loss_fn]
+            i += 1
+
+    param_loss = best_res[2]
+
+    cols = {
+            'FC': names[3] if temporal_type == 'WPD' else names[-1],
+            'YM (Skin)': param_loss[0],
+            'YM (Adipose)': param_loss[1],
+            'PR (Skin)': param_loss[2],
+            'PR (Adipose)': param_loss[3],
+            'Perm (Skin)': param_loss[4],
+            'Perm (Adipose)': param_loss[5],
+            'Overall MAPE': best_res[1],
+            'Overall MAE': best_res[0],
+            'Temporal type': names[1],
+            'Out': names[0],
+            'Loss fn': best_params[1],
+            'Batch size': best_params[0]
+    }
+    
+
+    # onvert to single element list
+    if model is not None:
+        for key in cols.keys():
+            cols[key] = [cols[key]]
+    
+    if temporal_type == 'WPD':
+        cols['Fusion Method'] = names[-2]
+        cols['FC'] = names[3]
+    else:
+        if names[-1]:
+            cols['FC'] = 'FC x3'
+        else:
+            cols['FC'] = 'FC x1'
+
+    best_df = pd.DataFrame(cols)
+    print(best_df)
+
+    loss_str = '_MAE' if model == 1 else ('_MSE' if model==0 else '')
+    best_df.to_csv(f'Results/KFCV/Optimization/{temporal_type}_{model}')
+    with open(f'Results/KFCV/Optimization/{temporal_type}_{model}_train_val.pkl', 'wb') as f:
+        pickle.dump([best_res[-2], best_res[-1]], f)
+        
+    
 
 """# Get the global rank of the process from environment variables
 rank = int(os.environ['SLURM_PROCID'])
@@ -441,7 +534,7 @@ if __name__ == '__main__':
         elif args.type == 'WPD':
             wpd_temporal_sweep(temporal_type, fusion_method)
         elif args.type == 'Optimisation':
-            optimise()
+            optimise(temporal_type, args.model)
         elif args.type == 'WPD_FC':
             best_wpd_fc_sweep()
         elif args.type == 'Attention':
