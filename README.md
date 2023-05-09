@@ -43,6 +43,10 @@ Best parameters stored in SkinLEarning/Experiments/ModelArgs
 - May benefit from reduction in learning rate (increased computational cost)
 - Save the model during early stopping to ensure the best model seen during training is kept
 
+## Dataset
+- https://www.dropbox.com/s/x98fzkr7ebqthfr/SamplingResults.zip?dl=0
+- Utils/SetupDataset.py for creating and saving WPD datasets
+
 ## Directory structure
 - `SkinLearning/`
     -`Datset/`
