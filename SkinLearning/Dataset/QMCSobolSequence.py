@@ -5,9 +5,14 @@ import pickle
 
 class Generator():
     """
-    Generates Sobol samples in the given bounds using the QMC module and the Sobol engine.
+        Generates Sobol samples using the QMC module and the Sobol engine.
+
+            Parameters:
+                dims (int):
+                    The number of dimensions to sample.
+                bounds (list):
+                    The bounds of each dimension.
     """
-    
     def __init__(this, dims, bounds, init=None):
         this.sampler = qmc.Sobol(dims)
         this.bounds = np.array(bounds)
@@ -18,6 +23,9 @@ class Generator():
         else:
             this.samples = init
 
+    """
+        Obtain "n" samples.
+    """
     def sample(this, n):
         samples = this.sampler.random_base2(int(math.log(n, 2)))
         samples = qmc.scale(samples, this.bounds[:, 0], this.bounds[:, 1])
@@ -28,10 +36,16 @@ class Generator():
         this.nSamples += n
         return samples
     
+    """
+        Save the samples to the given filename.
+    """
     def save_samples(this, fname):
         with open(f"{fname}", "wb") as f:
             pickle.dump(this.samples, f)
-            
+
+    """
+        Load samples from a given file name.
+    """     
     def load_samples(this, fname):
         with open(f"{fname}", "rb") as f:
             this.samples = pickle.load(f)

@@ -28,21 +28,14 @@ seeds = [
     2573982,
     2345
 ]
-parser = ArgumentParser()
 
-out_options = ['hidden']
-temporal_types = ['LSTM', 'GRU', 'RNN']
-single_fc_options = [True, False]
-fusion_methods = ['independent', 'concatenate']
+parser = ArgumentParser()
 
 parser.add_argument(
     '-t', '--type',
     help='Type of experiemnts',
     type=str,
-    choices = ['CNN', 'WPD', 'Optimisation', 'WPD_FC', 'Attention', 'Final'],
-    # CNN tests feature extraction from just the convolutional layers
-    # RNN tests the different types of outputs from RNN and derivatives
-    # Optimisation optimised HPs,
+    choices = ['CNN', 'WPD', 'Optimisation', 'WPD_FC', 'Final'],
     required=True
     )
 
@@ -77,9 +70,9 @@ parser.add_argument(
     )
 
 parser.add_argument(
-    '-d', '--distributed',
+    '-mg', '--multi_gpu',
     action='store_true',
-    help='Whether distributed training is being used'
+    help='Whether to train using multiple GPUs in parallel'
     )
 
 args = parser.parse_args()
@@ -167,28 +160,21 @@ def get_top_results(limit_reached, results, start, fname):
                 )
             )
 
-def cnn_temporal_sweep(temporal_type, single_fc):
+def cnn_temporal_sweep(temporal_type):
     start = time.time()
-    if torch.cuda.device_count() > 1:
-        print("Using", torch.cuda.device_count(), "GPUs")
     
-    """combinations = list(itertools.product(
-        out_options, single_fc_options
-        ))"""
+    combinations = list(itertools.product(
+        OUT_OPTIONS, SINGLE_FC_OPTIONS
+        ))
+
     dataset, scaler = get_dataset()
 
     results = []
     limit_reached = False
-    for i, out in enumerate(out_options):
-        # Check if time limit almost reached (71.2 hours)
-        if time.time() - start >= 257400:
-            
-            limit_reached = True
-            break
-
+    for i, (out, single_fc) in enumerate(combinations, temporal_type):
         print(
             f"Testing {temporal_type} with {'Single FC' if single_fc else 'Multi FC'} using {out}",
-            f"{i+1}/{len(out_options)}"
+            f"{i+1}/{len(OUT_OPTIONS)}"
             )
 
         model_args = {
@@ -206,7 +192,7 @@ def cnn_temporal_sweep(temporal_type, single_fc):
             model_init=init_model,
             model_args=model_args,
             cluster=False,
-            track_str=f"for model {i+1}/{len(out_options)}",
+            track_str=f"for model {i+1}/{len(combinations)}",
             )
         results.append((mae, mape, param_mape, (out, temporal_type, single_fc)))
         
@@ -214,40 +200,22 @@ def cnn_temporal_sweep(temporal_type, single_fc):
 
     get_top_results(limit_reached, results, start, f"CNN/{temporal_type}_{'single' if single_fc else 'multi'}x")
 
-def wpd_temporal_sweep(temporal_type, fusion_method=None, distributed=False):
+def wpd_temporal_sweep(temporal_type, distributed=False):
     set_seed()
+
     combinations = list(itertools.product(
-        out_options, single_fc_options
+        OUT_OPTIONS, SINGLE_FC_OPTIONS, FUSION_METHODS
         ))
 
-    extraction_args = {
-            "signals": None,
-            "method": "entropy",
-            "combined": False,
-            "wavelet": "db4",
-            "level": 8,
-            "order": "natural",
-            "levels": [8],
-            "normalization": False,
-            "stats": None,
-        }
-
-    dataset, scaler = get_dataset(extraction_args=extraction_args)
+    dataset, scaler = get_dataset(extraction_args=EXTRACTION_ARGS)
 
     results = []
     start = time.time()
     limit_reached = False
-    for i, (out, single_fc) in enumerate(combinations):
-         # Check if time limit almost reached (71.5 hours)
-        if time.time() - start >= 257400:
-            
-            limit_reached = True
-            break
-
+    for i, (out, single_fc, fusion_method) in enumerate(combinations):
         print(
             f"Testing {temporal_type} with {fusion_method} and",\
-                 f"{'Single FC' if single_fc else 'Multi FC'} using {out}",
-            f"{i+1}/{len(combinations)}"
+                    f"{'Single FC' if single_fc else 'Multi FC'} {i+1/len(combinations)}"
             )
 
         
@@ -257,14 +225,14 @@ def wpd_temporal_sweep(temporal_type, fusion_method=None, distributed=False):
         model_args = {
             'conv': False,
             'out': out,
-            'temporal_type': temporal_type,
+            'temporal_type': 'RNN',
             'single_fc': single_fc,
             'input_size': input_size,
             'hidden_size': input_size*2,
             'fusion_method': fusion_method
         }
 
-        mape, param_mape, mae = kfcv(
+        mape, param_mape, mae, _, _ = kfcv(
             dataset,
             scaler,
             model_init=init_model,
@@ -275,13 +243,14 @@ def wpd_temporal_sweep(temporal_type, fusion_method=None, distributed=False):
             )
 
         results.append(
-            (mae, mape, param_mape, (out, temporal_type, fusion_method, single_fc))
+            (mae, mape, param_mape, ('output', temporal_type, fusion_method, single_fc))
             )
-        
-        #get_gpu_usage()
 
-        get_top_results(limit_reached, results, start, f"WPD/{temporal_type}_{fusion_method}")
+    get_top_results(limit_reached, results, start, f"WPD/{temporal_type}_{'single' if single_fc else 'multi'}")
 
+"""
+    Test WPD on 1 or 3 FC layers to determine if further are necessary
+"""
 def best_wpd_fc_sweep():
     extraction_args = EXTRACTION_ARGS
 
@@ -289,50 +258,48 @@ def best_wpd_fc_sweep():
         extraction_args=extraction_args,
         )
 
-    model_args = [TOP_WPD_ARGS[0]]
+    model_args = [TOP_WPD_ARGS, TOP_WPD_ARGS],
+    
+    # Create a model for using 1 and 3 FC layers
+    model_args[0]['single_fc'] = True
+    model_args[0]['single_fc'] = False
+
             
-    names = [WPD_NAMES[0]]
+    names = [WPD_NAME, WPD_NAME]
+    names[0][-1] = 'FC x1'
+    names[1][-1] = 'FC x2'
 
     
-    run_experiment(model_args, names, f"WPD/Further FCs/top1_2fc", dataset, scaler)
+    run_experiment(model_args, names, f"WPD/Stats_entr/stats_single", dataset, scaler)
 
-def test_attention(temporal_type, model):
-    models = []
-    names = []
-
-    if temporal_type == 'CNN':
-        dataset, scaler = get_dataset(runs=[1,2,3])
-        model_args = TOP_CNN_ARGS[model]
-        names = CNN_NAMES[model]
-    else:
-        dataset, scaler = get_dataset(extraction_args=EXTRACTION_ARGS)
-        model_args = TOP_WPD_ARGS[model]
-        names = WPD_NAMES[model]
-    
-    model_args['attention'] = True
-    model_args['single_fc'] = True
-    
-    run_experiment([model_args], [names], f"Attention/{temporal_type}_{model}_test", dataset, scaler)
-
-
-
+"""
+    Run KFCV with a different seed for each run
+"""
 def multi_seed_comp(temporal_type, runs):
     names = []
 
     if temporal_type == 'CNN':
         dataset, scaler = get_dataset()
-        model_args = TOP_CNN_ARGS[0]
-        names = CNN_NAMES[0]
+        model_args = TOP_CNN_ARGS[CNN_BEST_IDX]
+        names = CNN_NAMES[CNN_BEST_IDX]
+        input_size = len(dataset[0]['input'])
+        print(input_size)
     else:
-        dataset, scaler = get_dataset(extraction_args=EXTRACTION_ARGS)
-        model_args = TOP_WPD_ARGS[0]
-        names = WPD_NAMES[0]
+        dataset = torch.load('Data/WPD DS/dataset_stats.pt')
+        with open('Data/WPD DS/scaler_stats.pkl', 'rb') as f:
+            scaler = pickle.load(f)
+        model_args = TOP_WPD_ARGS
+        names = WPD_NAME
+        input_size = len(dataset[0]['input'])
+        print(input_size)
+        model_args['input_size'] = input_size
+        model_args['hidden_size'] = input_size*2
     
     runs = [int(run) for run in runs]
     run_experiment(
         [model_args],
         [names],
-        f"Final Comparison/{temporal_type}_{min(runs)}_{max(runs)}",
+        f"/Test/{temporal_type}/{temporal_type}_L1_{min(runs)}_{max(runs)}",
         dataset,
         scaler,
         runs=runs
@@ -389,8 +356,8 @@ def run_experiment(model_args, names, fname, dataset, scaler, runs=None):
                 'Overall MAE': maes
         }
 
-        if len(runs) != 1:
-            cols['Run'] = [i for k in range(len(names))]
+       
+        cols['Run'] = [i for k in range(len(names))]
 
         df = pd.DataFrame(cols)
         
@@ -417,25 +384,21 @@ def run_experiment(model_args, names, fname, dataset, scaler, runs=None):
             f.write(str(elapsed_time))
 
 def optimise(temporal_type, model=None):
+    set_seed()
     if temporal_type == 'CNN':
         dataset, scaler = get_dataset()
         model_args = TOP_CNN_ARGS[model]
         names = CNN_NAMES[model]
     else:
         dataset, scaler = get_dataset(extraction_args=EXTRACTION_ARGS)
-        model_args = TOP_WPD_ARGS[model]
-        names = WPD_NAMES[model]
+        model_args = TOP_WPD_ARGS
+        names = WPD_NAME
 
     # Test only lower batch_sizes for generalisation
     # Increasing likely not to lead to improvement
     batch_sizes = [8, 16, 32]
 
-    """    if model == 1:
-        loss_fns = [nn.L1Loss()]
-    elif model == 0:
-        loss_fns = [nn.MSELoss()]
-    else:"""
-    loss_fns = [nn.L1Loss(), nn.MSELoss()]
+    loss_fns = [nn.MSELoss(), nn.L1Loss()]
 
     best_params = []
     best_loss = 10e3
@@ -445,10 +408,8 @@ def optimise(temporal_type, model=None):
     for loss_fn in loss_fns:
         for batch_size in batch_sizes:
             print(
-            f'Testing {temporal_type} with {batch_size} batch size and {loss_fn} {i+1}/{total_exps}'
+            f'Testing {temporal_type} {names} with {batch_size} batch size and {loss_fn} {i+1}/{total_exps}'
             )
-        
-            input_size = len(dataset[0]['input'])
 
             mape, param_mape, mae, train_losses, val_losses = kfcv(
                 dataset,
@@ -461,15 +422,15 @@ def optimise(temporal_type, model=None):
                 batch_size=batch_size
                 )
 
-            if best_loss > mae:
+            if best_loss < mae:
                 best_res = [mae, mape, param_mape, train_losses, val_losses]
                 best_params = [batch_size, loss_fn]
+                best_loss = mae
             i += 1
 
     param_loss = best_res[2]
 
     cols = {
-            'FC': names[3] if temporal_type == 'WPD' else names[-1],
             'YM (Skin)': param_loss[0],
             'YM (Adipose)': param_loss[1],
             'PR (Skin)': param_loss[2],
@@ -495,35 +456,17 @@ def optimise(temporal_type, model=None):
         cols['FC'] = names[3]
     else:
         if names[-1]:
-            cols['FC'] = 'FC x3'
-        else:
             cols['FC'] = 'FC x1'
+        else:
+            cols['FC'] = 'FC x3'
 
     best_df = pd.DataFrame(cols)
     print(best_df)
 
-    loss_str = '_MAE' if model == 1 else ('_MSE' if model==0 else '')
-    best_df.to_csv(f'Results/KFCV/Optimization/{temporal_type}_{model}')
-    with open(f'Results/KFCV/Optimization/{temporal_type}_{model}_train_val.pkl', 'wb') as f:
+    best_df.to_csv(f'Results/KFCV/Optimization/{temporal_type}_{model}_test')
+    with open(f'Results/KFCV/Optimization/{temporal_type}_{model}_train_val_test.pkl', 'wb') as f:
         pickle.dump([best_res[-2], best_res[-1]], f)
         
-    
-
-"""# Get the global rank of the process from environment variables
-rank = int(os.environ['SLURM_PROCID'])
-local_rank = int(os.environ['SLURM_LOCALID'])
-world_size = int(os.environ['SLURM_NTASKS'])
-
-# Initialize the distributed process group
-torch.distributed.init_process_group(
-    backend='nccl',
-    init_method='env://'
-)
-
-# Set the current device to the local rank
-torch.cuda.set_device(local_rank)"""
-
-
 
 if __name__ == '__main__':
     set_seed()
@@ -532,13 +475,11 @@ if __name__ == '__main__':
         if args.type == 'CNN':
             cnn_temporal_sweep(temporal_type, args.single_fc)
         elif args.type == 'WPD':
-            wpd_temporal_sweep(temporal_type, fusion_method)
+            wpd_temporal_sweep(temporal_type, fusion_method, single_fc=args.single_fc)
         elif args.type == 'Optimisation':
             optimise(temporal_type, args.model)
         elif args.type == 'WPD_FC':
             best_wpd_fc_sweep()
-        elif args.type == 'Attention':
-            test_attention(temporal_type, args.model)
         elif args.type == 'Final':
             multi_seed_comp(temporal_type, args.runs)
 

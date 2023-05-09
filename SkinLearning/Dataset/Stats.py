@@ -10,6 +10,9 @@ import pandas as pd
 SAMPLE_FILE = "samples.pkl"
 SIGNAL_FOLDER = "SamplingResults"
 
+"""
+    Obtains the interpolation error for a number of frequencies.
+"""
 if __name__ == "__main__":
     me = []
     mse = []
@@ -40,8 +43,6 @@ if __name__ == "__main__":
 
                 if files != ['Disp1.csv', 'Disp2.csv']:
                     continue
-
-
 
                 for file in files:
                     df = pd.read_csv(f"D:/SamplingResults2/{run}/{file}")

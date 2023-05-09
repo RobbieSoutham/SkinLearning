@@ -13,6 +13,9 @@ def running_in_notebook():
         return False
     return True
 
+"""
+    Reports GPU usage.
+"""
 def get_gpu_usage():
     gpu_stats = GPUStatCollection.new_query()
     print("\n")

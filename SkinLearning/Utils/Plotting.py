@@ -79,10 +79,16 @@ def print_curves(model_names, train_losses, val_losses, epochs=550, fname=None):
     plt.show()
 
 """
-    Plots and save a given dataframe
+    Plots and saves a given dataframe.
+
+    Parameters:
+        df (DataFrame):
+            The dataframe to plot.
+        fname (str):
+            The filename to save to.
+            
 """
 def save_df(df, fname):
-    fig = plt.figure(figsize=(5,5), frameon=False, constrained_layout=True)
     df = df.astype(float)
     df = df.round(2)
 

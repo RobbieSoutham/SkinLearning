@@ -13,9 +13,15 @@ import gc
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+"""
+    Changes PyTorch device to CPU
+"""
 def set_gpu():
     DEVICE = 'cuda'
 
+"""
+    Changes PyTorch device to CPU
+"""
 def set_cpu():
     DEVICE = 'cpu'
 
@@ -36,7 +42,17 @@ def set_seed(seed=123):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def update_plot(losses, val_losses, ax, label, epoch):
+"""
+    Utility for train function
+    Updates the current plot
+    
+    Parameters:
+        losses (list): training loss values up to the current epoch
+        val_losses (list): validation loss values up to the current epoch
+        ax (Matplotlib axes): current axes used for plotting
+        epoch (int): current epoch
+"""
+def update_plot(losses, val_losses, ax, epoch):
     # Clear the current plot
     ax.clear()
 
@@ -72,7 +88,7 @@ def update_plot(losses, val_losses, ax, label, epoch):
 def train(
     train_loader,
     net,
-    LR=0.1,
+    LR=0.0001,
     epochs=1500,
     val_loader=None,
     early_stopping=False,
@@ -111,8 +127,7 @@ def train(
             loss += cost.item()
             cost.backward()
             optimizer.step()
-    
-    # Mixed-precision training
+
     for epoch in range(epochs):
         net.train()
         
@@ -289,16 +304,16 @@ def kfcv(
     model_args,
     k=5,
     cluster=False,
-    distributed=False,
     track_str=None,
-    batch_size=32,
+    batch_size=8,
+    epochs=1000,
     LR=0.0001,
     criterion=nn.L1Loss()
      ):
-    # Initialize k and KFold
+    
+    # Initialise folds
     kfold = KFold(n_splits=k, shuffle=True)
 
-    # Perform k-fold cross-validation
     accuracies = []
     p_accuracies = []
     maes = []
@@ -306,56 +321,28 @@ def kfcv(
 
     for fold, (train_index, valid_index) in enumerate(kfold.split(dataset), start=1):
         print(f"Testing fold {fold}", track_str if track_str else "")
-        
-        if distributed:
-            # Create samplers for the train and validation subsets
-            train_sampler = torch.utils.data.distributed.DistributedSampler(
-                Subset(dataset, train_index),
-                num_replicas=torch.distributed.get_world_size(),
-                rank=torch.distributed.get_rank()
-            )
-            val_sampler = torch.utils.data.distributed.DistributedSampler(
-                Subset(dataset, valid_index),
-                num_replicas=torch.distributed.get_world_size(),
-                rank=torch.distributed.get_rank()
-            )
+        train_set = Subset(dataset, train_index)
+        valid_set = Subset(dataset, valid_index)
 
-            # Create DataLoaders for the train and validation subsets
-            train_loader = torch.utils.data.DataLoader(
-                Subset(dataset, train_index),
-                batch_size=32,
-                sampler=train_sampler,
-                num_workers=2
+        train_loader = DataLoader(
+            train_set,
+            batch_size=batch_size,
+            shuffle=True,
             )
-            valid_loader = torch.utils.data.DataLoader(
-                Subset(dataset, valid_index),
-                batch_size=32,
-                sampler=val_sampler,
-                num_workers=2
+        valid_loader = DataLoader(
+            valid_set,
+            batch_size=batch_size,
+            shuffle=True
             )
-        else:
-            train_set = Subset(dataset, train_index)
-            valid_set = Subset(dataset, valid_index)
-
-            train_loader = DataLoader(
-                train_set,
-                batch_size=batch_size,
-                shuffle=True,
-                )
-            valid_loader = DataLoader(
-                valid_set,
-                batch_size=batch_size,
-                shuffle=True
-                )
 
         model=model_init(**model_args)
-        # Train the model
+        
         train_loss, val_loss = train(
             train_loader,
             model,
             val_loader=valid_loader,
             LR=LR,
-            epochs=2000,
+            epochs=epochs,
             early_stopping=True,
             cluster=cluster,
             criterion=criterion)

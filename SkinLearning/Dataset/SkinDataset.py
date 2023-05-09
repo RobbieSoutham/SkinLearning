@@ -23,6 +23,7 @@ class SkinDataset(Dataset):
         steps=128,
         extraction_args=None
         ):
+        
         # Load both disp1 and disp2 from each folder
         # Folders ordered according to index of sample
         self.input = []
@@ -33,10 +34,10 @@ class SkinDataset(Dataset):
         
         for run in tqdm(runs):
             inp = []
-            fail = False
             
             files = os.listdir(f'{signal_folder}/{run}/')
             
+            # Ensure both curves are present
             if files != ['Disp1.csv', 'Disp2.csv']:
                 continue
             
@@ -45,12 +46,12 @@ class SkinDataset(Dataset):
                 a.rename(columns = {'0':'x', '0.1': 'y'}, inplace = True)
 
                 # Interpolate curve for consistent x values
+                # Ensure no NaNs - extrapolate
                 xNew = np.linspace(0, 7, num=steps, endpoint=False)
                 interped = interp1d(a['x'], a['y'], kind='cubic', fill_value='extrapolate')(xNew)        
                 
                 inp.append(interped.astype('float32'))
-            
-
+    
                 self.input.append(inp)
                 self.output.append(samples[int(run)])
         
@@ -87,7 +88,7 @@ def waveletExtraction(
     wavelet='db4',
     level=8,
     combine_method='concatenate',
-    order='freq',
+    order='natural',
     levels=[8],
     stats=['mean', 'std', 'skew', 'kurtosis'],
     normalization=None,
@@ -103,6 +104,9 @@ def waveletExtraction(
                 features.append(skew(coefficients))
             elif stat == 'kurtosis':
                 features.append(kurtosis(coefficients))
+            elif stat == 'min-max':
+                features.append(min(coefficients))
+                features.append(max(coefficients))
         return features
 
     def extract_features_single_signal(signal, method, wavelet, level, order, levels, stats_list):
@@ -110,7 +114,7 @@ def waveletExtraction(
         features = []
 
         for l in levels:
-            coeffs =  wp.get_level(level, order)
+            coeffs =  wp.get_level(l, order)
             coeffs = np.array([c.data for c in coeffs])
             
             if method == "e+s":
@@ -119,7 +123,6 @@ def waveletExtraction(
                     stats.append(np.sum(np.square(c)))
                     features.extend(stats)
                 
-
             if method == 'energy' or method == 'min-max':
                  # Normalise
                 coeffs = (coeffs - np.mean(coeffs)) / np.std(coeffs)
@@ -129,17 +132,23 @@ def waveletExtraction(
             elif method == 'energy':       
                 features.extend([np.sum(np.square(c)) for c in coeffs])
             elif method == 'entropy':
-                features.extend([np.sum(entr(np.abs(c))) for c in coeffs])
+                # Normalise each sub-band to obtain probability distribution
+                normalized_coeffs = [(c - np.min(c)) / (np.max(c) - np.min(c)) for c in coeffs]
+
+                # Use element wise entropy
+                features.extend([np.sum(entr(np.abs(nc))) for nc in normalized_coeffs])
+
+                    
             elif method == 'min-max':
                 features.extend([np.min(c) for c in coeffs] + [np.max(c) for c in coeffs])
             elif method == 'stats':
                 for c in coeffs:
                     features.extend(get_statistics(c, stats_list))
         
-            # Optional normalisation for raw and energy
+            # Normalise each curve independently
             if normalization == 'indvidual':
                 features = (features - min(features)) / (max(features) - min(features))
-                
+        
         return features
 
     if combined:
@@ -160,6 +169,7 @@ def waveletExtraction(
         else:
             raise ValueError("Invalid combine_method. Choose from 'concatenate' or 'interleave'.")
     
+    # Normalise both curves
     if normalization == 'combined':
         features = (features - np.min(features, axis=0)) / (np.max(features, axis=0) - np.min(features, axis=0))
     

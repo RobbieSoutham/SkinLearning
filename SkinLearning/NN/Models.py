@@ -30,17 +30,20 @@ best_CNN = nn.Sequential(
             Size of the input tensor. 
 """
 class Attention(nn.Module):
-    def __init__(self, in_size):
+    def __init__(self, in_size, hidden_size):
         super(Attention, self).__init__()
-        self.fc1 = nn.Linear(in_size, in_size)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(in_size, 1)
+        print(in_size, hidden_size)
+        self.fc = nn.Sequential(
+            nn.Linear(in_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(in_size, 1)
+        )
 
     def forward(self, temporal_outputs):
         if temporal_outputs.dim() == 2:
             temporal_outputs = temporal_outputs.unsqueeze(1)
 
-        attention_scores = self.fc1(temporal_outputs).squeeze(-1)  # Squeeze the last dimension to obtain attention scores
+        attention_scores = self.fc(temporal_outputs).squeeze(-1) # Squeeze the last dimension to obtain attention scores
         attention_weights = torch.softmax(attention_scores, dim=-1)
         context_vector = torch.sum(attention_weights.unsqueeze(-1) * temporal_outputs, dim=-2)
 
@@ -130,59 +133,34 @@ class MultiTemporal(nn.Module):
         else:
             raise ValueError("Invalid output option. Choose from 'output', 'hidden', 'f_hidden', 'f_output', or 'h+o'.")
 
-        if fusion_method == "independent":
-            fc_in *= 2
-        
 
         if attention:
             if fusion_method == 'independent':
-                self.attention1 = Attention(fc_in // 2)
-                self.attention2 = Attention(fc_in // 2)
+                self.attention1 = Attention(fc_in, fc_in//2)
+                self.attention2 = Attention(fc_in, fc_in//2)
             else:
                 self.attention = Attention(fc_in)
 
-        print("FC in:", fc_in, "HS", hidden_size)
+        if fusion_method == "independent":
+            fc_in *= 2
+
         if single_fc:
             self.fc = nn.Linear(fc_in*layers, 6)
         else:
             self.fc = nn.Sequential(
-                nn.Linear(fc_in if fc_in <= 256 or conv else 256, 128),
+                nn.Linear(fc_in, 128), #fc_in if fc_in <= 256 or conv else 256
                 nn.ReLU(),
                 nn.Linear(128 , 64),
                 nn.ReLU(),
                 nn.Linear(64, 6),   
             )
             
-            # 3 for h+o and final states best
-            if fc_in > 256 and not conv:
-                if fc_in == 4096:
-                     init_layers = nn.Sequential(
-                    #nn.Linear(fc_in, 2048),
-                    #nn.ReLU(),
-                    nn.Linear(fc_in, 1024),
-                    nn.ReLU(),
-                    nn.Linear(1024, 512),
-                    nn.ReLU(),
-                    nn.Linear(512, 256),
-                    nn.ReLU()
-                    )
-                elif fc_in == 2048:
-                    init_layers = nn.Sequential(
-                    nn.Linear(fc_in, 1024),
-                    nn.ReLU(),
-                    nn.Linear(1024, 512),
-                    nn.ReLU(),
-                    nn.Linear(512, 256),
-                    nn.ReLU()
-                    )
-
-                self.fc = nn.Sequential(init_layers, self.fc)
-            print("\n")   
 
     def forward(self, x):
-        # Flatten weights to avoid fragmentation
+        # Flatten weights to avoid fragmentation (parallel GPU)
         self.net.flatten_parameters()
         batch_size = x.shape[0]
+        
         
         if self.conv:
             x = self.cnn(x)
@@ -208,6 +186,7 @@ class MultiTemporal(nn.Module):
             o, h = get_outputs(x)
 
         if self.out == "f_hidden":
+             
             if self.fusion_method == "independent":
                 x = torch.cat([h1[-1], h2[-1]], dim=1).reshape(batch_size, -1)
             else:
@@ -232,10 +211,6 @@ class MultiTemporal(nn.Module):
                 x1 = torch.cat([h1[-1], o1[:, -1, :]], dim=1)
                 x2 = torch.cat([h2[-1], o2[:, -1, :]], dim=1)
 
-                if self.attention1:
-                    x1 = self.attention1(x1)
-                    x2 = self.attention2(x2)
-
                 x = torch.cat([x1, x2], dim=1).view(batch_size, -1)
             else:
                 x = torch.cat([h[-1], o[:, -1, :]], dim=1).view(batch_size, -1)
@@ -250,11 +225,9 @@ class MultiTemporal(nn.Module):
 """
 class DualDownUp(nn.Module):
     def __init__(self):
-        super(DualDownUp, self).__init__()
-        
+        super(DualDownUp, self).__init__() 
         self.cnn = nn.Sequential(
             nn.Conv1d(2, 32, kernel_size=5, padding=1),
-    
             nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=5, stride=5),
@@ -268,11 +241,6 @@ class DualDownUp(nn.Module):
             nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2),
-
-            nn.Conv1d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2),
         )
 
         self.fc = nn.Sequential(
@@ -284,16 +252,14 @@ class DualDownUp(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.5),
 
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-
-            nn.Linear(32, 6)
+            nn.Linear(64, 6)
         )
 
     def forward(self, x):
+        batch_size = x.shape[0]
+        
         x = self.cnn(x)
-
+        x = x.view(batch_size, -1)
         x = self.fc(x)
 
         return x
@@ -317,11 +283,6 @@ class DualUpDown(nn.Module):
             nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2),
-
-            nn.Conv1d(128, 64, kernel_size=3, padding=1),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2),
         )
         
         
@@ -334,26 +295,17 @@ class DualUpDown(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.5),
 
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-
-            nn.Linear(16, 6)
+            nn.Linear(32, 6)
         )
 
-def forward(self, x):
-    batch_size = x.shape[0]
-    x = self.cnn(x)
+    def forward(self, x):
+        batch_size = x.shape[0]
+        
+        x = self.cnn(x)
+        x = x.view(batch_size, -1)
+        x = self.fc(x)
 
-    x = x.view(batch_size, -1)
-
-    x = self.fc(x)
-    
-    return x
+        return x
 
 """
     Up samples to 128 from 32
@@ -375,12 +327,7 @@ class DualDownUp(nn.Module):
             nn.Conv1d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2),
-
-            nn.Conv1d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2, stride=2),     
+            nn.MaxPool1d(kernel_size=2, stride=2), 
         )
 
         self.fc = nn.Sequential(
@@ -392,16 +339,14 @@ class DualDownUp(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.5),
 
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-
-            nn.Linear(32, 6)
+            nn.Linear(64, 6)
         )
 
     def forward(self, x):
         batch_size = x.shape[0]
+        
         x = self.cnn(x)
+        x = x.view(batch_size, -1)
         x = self.fc(x)
 
         return x
@@ -428,11 +373,6 @@ class DualDownUp(nn.Module):
             nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=5, stride=5),
-
-            nn.Conv1d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=5, stride=5),
         )
         
         self.fc = nn.Sequential(
@@ -444,21 +384,16 @@ class DualDownUp(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.5),
 
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-
-            nn.Linear(32, 6)
+            nn.Linear(64, 6)
         )
 
     def forward(self, x):
         batch_size = x.shape[0]
-        x = self.cnn(x)
         
-
+        x = self.cnn(x)
         x = x.view(batch_size, -1)
-
         x = self.fc(x)
+
         return x
 
 """
@@ -483,11 +418,6 @@ class DualUp(nn.Module):
             nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=5, stride=5),
-
-            nn.Conv1d(512, 1024, kernel_size=3, padding=1),
-            nn.BatchNorm1d(1024),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=5, stride=5),
         )
         
         self.fc = nn.Sequential(
@@ -499,23 +429,17 @@ class DualUp(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.5),
 
-            nn.Linear(256, 64),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-
-            nn.Linear(64, 6)
+            nn.Linear(256, 6)
         )
 
 
     def forward(self, x):
         batch_size = x.shape[0]
+        
         x = self.cnn(x)
-        
         x = x.view(batch_size, -1)
-        
         x = self.fc(x)
-        
-        x = self.fc4(x)
+
         return x
 
 """
@@ -540,11 +464,6 @@ class DualDown(nn.Module):
             nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=5, stride=5),
-
-            nn.Conv1d(32, 16, kernel_size=3, padding=1),
-            nn.BatchNorm1d(16),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=5, stride=5),
         )
 
         self.fc = nn.Sequential(
@@ -556,19 +475,14 @@ class DualDown(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.5),
 
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-
-            nn.Linear(16, 6)
+            nn.Linear(32, 6)
         )
 
     def forward(self, x):
         batch_size = x.shape[0]
-        x = self.cnn(x)
         
+        x = self.cnn(x)
         x = x.view(batch_size, -1)
-
         x = self.fc(x)
 
         return x
