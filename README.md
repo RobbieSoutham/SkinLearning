@@ -1,28 +1,47 @@
 # MastersDiss
 Deep learning + feature extraction approaches to inferring the material characteristics of skin.
-Dataset obtained with FEBio using Quasi-monte Carlo with Sobol sequences.
+Dataset obtained with FEBio simulations of the Cutometer using Quasi-monte Carlo with Sobol sequences.
+Best parameters stored in SkinLEarning/Experiments/ModelArgs
 
-# Best approaches
-## CNN
-- Upsampling
+## Best approaches
+Best parameters stored in SkinLEarning/Experiments/ModelArgs
+
+#### CNN Feature Extraction
+- Upsampling - capturing higher level features significantly more effective
+- Larger kernels to begin with
+- Dual channel - process curves individually
+
+#### WPD Feature Extraction
+- Only use the final level from decomposition
+- Decompose signals independently
+- Concatenate sub-bands
+- No significant improvement past maximum decomposition level of 8
+-  Use mean, standard deviation, skew, kurtosis
+    - Energy, entropy, or other combinations of statistics no better than raw coefficients
+- Daubechies 4 (Db 4)
+    - Symlets 3, 4, 6 and db 2, 6 showed no improvements
+
+### CNN-LSTM
 - LSTM + entire output state
 - Sequence dimension is number of filters
+- Proccessed together
 
-## WPD
-- Statistical significance over CNN
+#### WPD-LSTM
+- Statistical significance over CNN-LSTM
+- Siamese LSTM
 - Sequence length of 1 -> LSTM not fully utilised
 - Downstreamed to standard FFNN (ReLU) or a CNN performs worse
 - Should test FFNN with tahn activation
+- Hidden size = 2 * total number of features
 
-# Skin model
+## Skin model
 - Potentially try just the loading phase
 - Temporal dependencies may come into play if the deloading phase presents better behavior or is removed
 
-# Further improvments
+## Further improvments
 - May benefit from optimising WPD parameters (BO)
 - May benefit from reduction in learning rate (increased computational cost)
 - Save the model during early stopping to ensure the best model seen during training is kept
-
 
 ## Directory structure
 - `SkinLearning/`
