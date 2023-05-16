@@ -1,10 +1,10 @@
+""" Models for testing outputs and RNN derivatives """
+
 from copy import deepcopy
 import torch
 from torch import nn
 
-""" Models for testing outputs and RNN derivatives """
-
-""" Best CNN found for feature extraction """
+# Best CNN found for feature extraction
 best_CNN = nn.Sequential(
     nn.Conv1d(2, 128, kernel_size=5, padding=1, bias=False),
     nn.BatchNorm1d(128),
@@ -22,31 +22,6 @@ best_CNN = nn.Sequential(
     nn.MaxPool1d(kernel_size=2, stride=2),
 )
 
-"""
-    Configurable CNN + Temporal network
-    
-    Parameters:
-        conv: (boolean):
-            If true uses the "best_CNN" otherwise just the temporal network.
-        input_size (int):
-            Size of the input passed into the temporal network.
-        hidden_size (int):
-            Number of hidden layers in the temporal network.
-        layers (int):
-            Number of layers in the temporal network.
-        single_fc (boolean):
-            If true only one FC layer is used, otherwise three are used.
-        out (string):
-            Name of the output to use.
-            Options:
-                f_hidden: final hidden state,
-                hidden: full hidden state,
-                f_output: final output,
-                output: full output,
-                h+o: combination of final hidden state and final output.
-        temporal_type (string):
-            Type of model to use (RNN, LSTM, GRU)
-"""
 class MultiTemporal(nn.Module):
     def __init__(
         self,
@@ -59,6 +34,31 @@ class MultiTemporal(nn.Module):
         temporal_type="RNN",
         fusion_method="concatenate"
     ):
+    """
+        Configurable CNN + Temporal network
+
+        Parameters:
+            conv: (boolean):
+                If true uses the "best_CNN" otherwise just the temporal network.
+            input_size (int):
+                Size of the input passed into the temporal network.
+            hidden_size (int):
+                Number of hidden layers in the temporal network.
+            layers (int):
+                Number of layers in the temporal network.
+            single_fc (boolean):
+                If true only one FC layer is used, otherwise three are used.
+            out (string):
+                Name of the output to use.
+                Options:
+                    f_hidden: final hidden state,
+                    hidden: full hidden state,
+                    f_output: final output,
+                    output: full output,
+                    h+o: combination of final hidden state and final output.
+            temporal_type (string):
+                Type of model to use (RNN, LSTM, GRU)
+    """
         super(MultiTemporal, self).__init__()
 
         self.hidden_size = hidden_size
@@ -335,10 +335,10 @@ def forward(self, x):
     
     return x
 
-"""
-    Up samples to 128 from 32
-"""
 class DualDownUp(nn.Module):
+    """
+        Up samples to 128 from 32
+    """
     def __init__(self):
         super(DualDownUp, self).__init__()
         self.cnn = nn.Sequential(
@@ -386,10 +386,10 @@ class DualDownUp(nn.Module):
 
         return x
 
-"""
-    Up samples to 128 from 32
-"""
 class DualDownUp(nn.Module):
+    """
+        Up samples to 128 from 32
+    """
     def __init__(self):
         super(DualDownUp, self).__init__()
 
@@ -441,10 +441,10 @@ class DualDownUp(nn.Module):
         x = self.fc(x)
         return x
 
-"""
-    Up samples to 256 from 128
-"""
 class DualUp(nn.Module):
+    """
+        Up samples to 256 from 128
+    """
     def __init__(self):
         super(DualUp, self).__init__()
 
@@ -498,10 +498,10 @@ class DualUp(nn.Module):
         x = self.fc4(x)
         return x
 
-"""
-    Down samples from 128 features
-"""
 class DualDown(nn.Module):
+    """
+        Down samples from 128 features
+    """
     def __init__(self):
         super(DualDown, self).__init__()
 
