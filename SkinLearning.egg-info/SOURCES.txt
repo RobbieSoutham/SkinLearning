@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-setup.cfg
-setup.py
-SkinLearning.egg-info/PKG-INFO
-SkinLearning.egg-info/SOURCES.txt
-SkinLearning.egg-info/dependency_links.txt
-SkinLearning.egg-info/top_level.txt
