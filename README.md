@@ -38,10 +38,12 @@ Best parameters stored in SkinLEarning/Experiments/ModelArgs
 - Potentially try just the loading phase
 - Temporal dependencies may come into play if the deloading phase presents better behavior or is removed
 
-## Further improvments
+## Future directions
 - May benefit from optimising WPD parameters (BO)
 - May benefit from reduction in learning rate (increased computational cost)
 - Save the model during early stopping to ensure the best model seen during training is kept
+
+This may be useful: [Appliance Classification by Power Signal Analysis Based on Multi-Feature Combination Multi-Layer LSTM](https://doi.org/10.3390/en12142804)
 
 ## Dataset
 - https://www.dropbox.com/s/x98fzkr7ebqthfr/SamplingResults.zip?dl=0
